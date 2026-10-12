@@ -1,0 +1,52 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "WebBox application manifest",
+  "type": "object",
+  "required": ["name", "command"],
+  "additionalProperties": false,
+  "properties": {
+    "name": { "type": "string", "minLength": 1 },
+    "command": { "type": "string", "minLength": 1 },
+    "title": { "type": "string" },
+    "icon": { "type": "string" },
+    "cwd": { "type": "string", "minLength": 1 },
+    "args": { "type": "array", "items": { "type": "string" } },
+    "env": { "type": "object", "additionalProperties": { "type": "string" } },
+    "startUrl": { "type": "string" },
+    "detached": { "type": "boolean" },
+    "singleInstance": { "type": "boolean" },
+    "logOnStart": { "type": "boolean" },
+    "port": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "mode": { "enum": ["env", "arg", "placeholder"] },
+        "name": { "type": "string", "minLength": 1 },
+        "fixed": { "$ref": "#/definitions/portNumber" },
+        "range": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "$ref": "#/definitions/portNumber" } }
+      }
+    },
+    "ready": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "type": { "enum": ["port", "http", "stdout"] },
+        "timeoutMs": { "type": "integer", "minimum": 1, "maximum": 120000 },
+        "path": { "type": "string" },
+        "pattern": { "type": "string", "minLength": 1, "maxLength": 512 }
+      }
+    },
+    "window": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "width": { "$ref": "#/definitions/windowSize" },
+        "height": { "$ref": "#/definitions/windowSize" },
+        "minWidth": { "$ref": "#/definitions/windowSize" },
+        "minHeight": { "$ref": "#/definitions/windowSize" },
+        "rememberBounds": { "type": "boolean" }
+      }
+    }
+  },
+  "definitions": {
+    "portNumber": { "type": "integer", "minimum": 1, "maximum": 65535 },
+    "windowSize": { "type": "integer", "minimum": 200, "maximum": 16384 }
+  }
+}

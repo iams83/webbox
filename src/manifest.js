@@ -2,6 +2,26 @@
 
 const fs = require('node:fs/promises');
 const path = require('node:path');
+const Ajv = require('ajv');
+const validate = new Ajv({ allErrors: false, strict: true }).compile(require('./manifest.schema.json'));
+
+function validateSchema(data) {
+  if (validate(data)) return;
+  const error = validate.errors[0];
+  const parts = error.instancePath.split('/').slice(1).map(part => part.replaceAll('~1', '/').replaceAll('~0', '~'));
+  let field = parts.map(part => /^\d+$/.test(part) ? '[' + part + ']' : '.' + part).join('').replace(/^\./, '');
+  const property = error.params.additionalProperty ?? error.params.missingProperty;
+  if (property) field += (field ? '.' : '') + property;
+  const messages = {
+    additionalProperties: 'no es un campo reconocido.', required: 'es obligatorio.',
+    type: error.params.type === 'array' ? 'debe ser una lista.' : 'tiene un tipo incorrecto.',
+    enum: 'solo admite ' + (error.params.allowedValues ?? []).join(', ') + '.',
+    minimum: 'está por debajo del mínimo permitido.', maximum: 'supera el máximo permitido.',
+    minLength: 'no puede estar vacío.', maxLength: 'es demasiado largo.',
+    minItems: 'no contiene suficientes elementos.', maxItems: 'contiene demasiados elementos.'
+  };
+  throw fieldError(field || 'raíz', messages[error.keyword] ?? 'no cumple el esquema.');
+}
 
 function fieldError(field, message) {
   return new Error('Manifiesto: ' + field + ' ' + message);
@@ -10,12 +30,6 @@ function fieldError(field, message) {
 function objectField(value, field) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw fieldError(field, 'debe ser un objeto.');
-  }
-}
-
-function knownFields(value, fields, prefix = '') {
-  for (const field of Object.keys(value)) {
-    if (!fields.includes(field)) throw fieldError(prefix + field, 'no es un campo reconocido.');
   }
 }
 
@@ -29,7 +43,14 @@ function envName(value, field) {
   }
 }
 
-// Validación del soporte actual; runtimes y readiness adicionales siguen pendientes.
+function localPath(value, field) {
+  if (typeof value !== 'string' || !value.startsWith('/') || value.startsWith('//')
+    || value.includes('\\') || /[\u0000-\u001f\u007f]/.test(value)) {
+    throw fieldError(field, 'debe ser una ruta local que empiece por /, sin caracteres de control.');
+  }
+}
+
+// El esquema valida la estructura; debajo se comprueban contratos entre campos.
 async function readManifest(filename) {
   if (!filename) throw new Error('Falta el manifiesto. Uso: launcher.exe ruta\\al\\manifiesto.json [--debug] [--trust]');
   const manifestPath = path.resolve(filename);
@@ -46,7 +67,7 @@ async function readManifest(filename) {
     throw new Error('El manifiesto «' + manifestPath + '» no contiene JSON válido.');
   }
   objectField(data, 'raíz');
-  knownFields(data, ['name', 'title', 'icon', 'command', 'args', 'cwd', 'env', 'port', 'ready', 'startUrl', 'window', 'detached', 'singleInstance', 'logOnStart']);
+  validateSchema(data);
   for (const field of ['name', 'command']) {
     if (typeof data[field] !== 'string' || !data[field].trim()) {
       throw fieldError(field, 'es obligatorio y debe ser texto no vacío.');
@@ -61,70 +82,66 @@ async function readManifest(filename) {
   if (/[\u0000-\u001f"<>|]/.test(command)) {
     throw fieldError('command', 'contiene caracteres que no pertenecen a un ejecutable.');
   }
-  if (data.args !== undefined && (!Array.isArray(data.args) || data.args.some(arg => typeof arg !== 'string'))) {
-    throw fieldError('args', 'debe ser una lista de textos.');
-  }
   (data.args ?? []).forEach((arg, index) => noNul(arg, 'args[' + index + ']'));
   for (const field of ['cwd', 'icon', 'title']) {
     if (data[field] !== undefined) {
-      if (typeof data[field] !== 'string' || (field === 'cwd' && !data[field])) {
-        throw fieldError(field, 'debe ser texto' + (field === 'cwd' ? ' no vacío.' : '.'));
-      }
       noNul(data[field], field);
     }
   }
   const env = data.env === undefined ? {} : data.env;
-  objectField(env, 'env');
   for (const [key, value] of Object.entries(env)) {
     envName(key, 'env.' + key);
-    if (typeof value !== 'string') throw fieldError('env.' + key, 'debe ser texto.');
     noNul(value, 'env.' + key);
   }
   const port = data.port === undefined ? {} : data.port;
-  objectField(port, 'port');
-  knownFields(port, ['mode', 'name', 'fixed', 'range'], 'port.');
   const mode = port.mode === undefined ? 'env' : port.mode;
-  if (mode !== 'env') throw fieldError('port.mode', 'en el prototipo solo admite "env".');
-  if (port.fixed !== undefined || port.range !== undefined) {
-    throw fieldError('port', 'fixed y range se implementarán en el hito 2.');
+  if (port.fixed !== undefined && port.range !== undefined) {
+    throw fieldError('port', 'fixed y range son mutuamente excluyentes.');
   }
-  const portName = port.name === undefined ? 'PORT' : port.name;
-  envName(portName, 'port.name');
+  if (port.range !== undefined) {
+    if (port.range[0] > port.range[1]) throw fieldError('port.range', 'inicio no puede superar fin.');
+  }
+  const portName = port.name === undefined ? (mode === 'arg' ? '--port' : 'PORT') : port.name;
+  if (mode === 'env') envName(portName, 'port.name');
+  if (mode === 'arg' && !/^--?[A-Za-z][A-Za-z0-9_-]*$/.test(portName)) {
+    throw fieldError('port.name', 'debe ser un argumento como --port o -p.');
+  }
+  if (mode === 'arg' && (data.args ?? []).some(arg => arg === portName || arg.startsWith(portName + '='))) {
+    throw fieldError('args', 'ya contiene el argumento ' + portName + '; WebBox lo añade automáticamente.');
+  }
+  if (mode === 'placeholder') {
+    if (port.name !== undefined) throw fieldError('port.name', 'no se admite en modo placeholder.');
+    if (!(data.args ?? []).some(arg => arg.includes('{PORT}')) && !Object.values(env).some(value => value.includes('{PORT}'))) {
+      throw fieldError('port.mode', 'placeholder exige {PORT} en args o env.');
+    }
+  }
   const ready = data.ready === undefined ? {} : data.ready;
-  objectField(ready, 'ready');
-  knownFields(ready, ['type', 'timeoutMs', 'path', 'pattern'], 'ready.');
-  if ((ready.type === undefined ? 'port' : ready.type) !== 'port') {
-    throw fieldError('ready.type', 'en el prototipo solo admite "port".');
+  const readyType = ready.type === undefined ? 'port' : ready.type;
+  if (ready.pattern !== undefined && readyType !== 'stdout') throw fieldError('ready.pattern', 'solo se admite con readiness stdout.');
+  if (readyType === 'stdout') {
+    if (!ready.pattern) throw fieldError('ready.pattern', 'es obligatorio para stdout.');
+    try { new RegExp(ready.pattern); } catch { throw fieldError('ready.pattern', 'debe ser una expresión regular JavaScript válida, sin delimitadores ni flags.'); }
+    if (data.detached) throw fieldError('detached', 'no admite readiness stdout; usa port o http.');
   }
-  for (const field of ['path', 'pattern']) {
-    if (ready[field] !== undefined) throw fieldError('ready.' + field, 'se implementará en el hito 2.');
+  if (ready.path !== undefined && readyType !== 'http') {
+    throw fieldError('ready.path', 'solo se admite con ready.type "http".');
   }
+  const readyPath = ready.path === undefined ? '/' : ready.path;
+  if (readyType === 'http') localPath(readyPath, 'ready.path');
   const timeoutMs = ready.timeoutMs === undefined ? 30000 : ready.timeoutMs;
-  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 120000) {
-    throw fieldError('ready.timeoutMs', 'debe ser un entero entre 1 y 120000.');
-  }
   const startUrl = data.startUrl === undefined ? '/' : data.startUrl;
-  if (typeof startUrl !== 'string' || !startUrl.startsWith('/') || startUrl.startsWith('//')
-    || startUrl.includes('\\') || /[\u0000-\u001f\u007f]/.test(startUrl)) {
-    throw fieldError('startUrl', 'debe ser una ruta local que empiece por /, sin caracteres de control.');
-  }
+  localPath(startUrl, 'startUrl');
   const window = data.window === undefined ? {} : data.window;
-  objectField(window, 'window');
-  knownFields(window, ['width', 'height', 'minWidth', 'minHeight', 'rememberBounds'], 'window.');
   const windowOptions = { width: 1100, height: 760, minWidth: 480, minHeight: 320 };
   for (const field of Object.keys(windowOptions)) {
     if (window[field] !== undefined) {
-      if (!Number.isInteger(window[field]) || window[field] < 200 || window[field] > 16384) {
-        throw fieldError('window.' + field, 'debe ser un entero entre 200 y 16384.');
-      }
       windowOptions[field] = window[field];
     }
   }
   for (const [field, value] of [
-    ['detached', data.detached], ['singleInstance', data.singleInstance],
-    ['logOnStart', data.logOnStart], ['window.rememberBounds', window.rememberBounds]
+    ['singleInstance', data.singleInstance],
+    ['window.rememberBounds', window.rememberBounds]
   ]) {
-    if (value !== undefined && typeof value !== 'boolean') throw fieldError(field, 'debe ser booleano.');
     if (value === true) throw fieldError(field, 'todavía no está implementado en el prototipo.');
   }
   const baseDir = path.dirname(manifestPath);
@@ -133,7 +150,13 @@ async function readManifest(filename) {
     icon: data.icon ? path.resolve(baseDir, data.icon) : undefined,
     command: /[\\/]/.test(command) ? path.resolve(baseDir, command) : command,
     args: data.args ?? [], cwd: path.resolve(baseDir, data.cwd ?? '.'), env,
-    port: { mode, name: portName }, ready: { type: 'port', timeoutMs },
+    port: { mode, name: portName,
+      ...(port.fixed !== undefined ? { fixed: port.fixed } : {}),
+      ...(port.range !== undefined ? { range: port.range } : {}) },
+    ready: { type: readyType, timeoutMs, ...(readyType === 'http' ? { path: readyPath } : {}),
+      ...(readyType === 'stdout' ? { pattern: ready.pattern } : {}) },
+    detached: data.detached ?? false,
+    logOnStart: data.logOnStart ?? false,
     startUrl, window: windowOptions
   };
 }

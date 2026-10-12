@@ -15,7 +15,12 @@
     <h1 id="title">WebBox</h1>
     <p id="message" role="status">Preparando el servidor local…</p>
     <pre id="details" hidden></pre>
-    <button id="reload" type="button" hidden>Volver a cargar la página</button>
+    <div class="actions">
+      <button id="reload" type="button" hidden>Volver a cargar la página</button>
+      <button id="retry" type="button" hidden>Reintentar servidor</button>
+      <button id="log" class="secondary" type="button" hidden>Ocultar log</button>
+      <button id="exit" class="secondary" type="button" hidden>Salir</button>
+    </div>
     <p id="hint" hidden>Cierra esta ventana para salir. Corrige el problema y vuelve a abrir el manifiesto.</p>
   </main>
   <script src="status.js"></script>

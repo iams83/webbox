@@ -1,0 +1,6 @@
+{
+  "name": "WebBox placeholder",
+  "command": "node",
+  "args": ["server.js", "{PORT}"],
+  "port": { "mode": "placeholder" }
+}

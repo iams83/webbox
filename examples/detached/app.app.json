@@ -1,0 +1,7 @@
+{
+  "name": "WebBox detached",
+  "command": "node",
+  "args": ["start.js"],
+  "detached": true,
+  "ready": { "type": "http", "path": "/", "timeoutMs": 15000 }
+}

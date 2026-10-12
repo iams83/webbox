@@ -15,6 +15,11 @@
     p { line-height: 1.7; color: #5d6d82; }
     button { padding: 10px 16px; border: 0; border-radius: 6px; background: #2665ae; color: white; font: inherit; cursor: pointer; }
     #count { margin-left: 12px; font-size: 14px; }
+    .files { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 24px; align-items: center; }
+    a { color: #2665ae; }
+    label { display: block; margin-top: 20px; font-size: 14px; }
+    input { display: block; margin-top: 8px; max-width: 100%; font: inherit; }
+    #upload-result { font-size: 14px; min-height: 24px; margin: 8px 0 0; }
     footer { margin-top: 32px; padding-top: 20px; border-top: 1px solid #e5ebf2; color: #65758a; font-size: 13px; }
     @media (max-width: 560px) { body { padding: 20px; } main { padding: 24px; } h1 { font-size: 28px; } }
   </style>
@@ -26,12 +31,35 @@
     <h1>Tu web, en una ventana.</h1>
     <p>Esta página se sirve desde un proceso Node.js local, oculto y vinculado al lanzador. La ventana mantiene su título y no tiene menú ni barra de direcciones.</p>
     <button id="increment" type="button">Probar interacción</button><span id="count" aria-live="polite">0 clics</span>
-    <footer>HTTP local · Windows · JavaScript · Hito 1 de 6</footer>
+    <div class="files">
+      <a id="download" href="/download" download>Descargar informe</a>
+      <button id="alert" type="button">Mostrar aviso</button>
+      <button id="confirm" type="button">Probar confirmación</button>
+    </div>
+    <label for="upload">Subir un archivo de prueba</label>
+    <input id="upload" type="file">
+    <p id="upload-result" aria-live="polite"></p>
+    <footer>HTTP local · Windows · JavaScript · F12 para ver el log</footer>
   </main>
   <script>
     let count = 0;
     document.getElementById('increment').addEventListener('click', () => {
       document.getElementById('count').textContent = `${++count} clics`;
+    });
+    document.getElementById('alert').addEventListener('click', () => alert('Aviso de WebBox · España'));
+    document.getElementById('confirm').addEventListener('click', () => {
+      document.getElementById('upload-result').textContent = confirm('¿Confirmas la prueba?') ? 'Confirmado.' : 'Cancelado.';
+    });
+    document.getElementById('upload').addEventListener('change', async event => {
+      const file = event.target.files[0];
+      if (!file) return;
+      const result = document.getElementById('upload-result');
+      try {
+        const response = await fetch('/upload', { method: 'POST', body: file });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        const data = await response.json();
+        result.textContent = `${file.name}: ${data.bytes} bytes recibidos.`;
+      } catch { result.textContent = 'No se pudo subir el archivo.'; }
     });
   </script>
 </body>

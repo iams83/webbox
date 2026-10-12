@@ -1,0 +1,7 @@
+{
+  "name": "WebBox argumento",
+  "command": "node",
+  "args": ["server.js"],
+  "port": { "mode": "arg", "name": "--port" },
+  "ready": { "type": "stdout", "pattern": "READY \\d+" }
+}

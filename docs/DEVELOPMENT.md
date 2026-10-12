@@ -1,55 +1,60 @@
 # Guía de desarrollo
 
-JavaScript CommonJS, APIs directas de Electron/Node y HTML/CSS, sin framework ni compilación. `package.json` fija Electron; `package-lock.json` permite instalar con `npm.cmd ci`. Los comandos y el contrato del manifiesto están en el [README](../README.md).
+Lee primero el [contrato actual](../README.md), luego esta guía. [MILESTONES.md](MILESTONES.md) registra avance/evidencia; [SPEC.md](SPEC.md), trabajo pendiente. JavaScript CommonJS, sin framework ni compilación; dependencias y versiones fijadas en package.json/package-lock.json.
 
 ## Mapa del código
 
-| Archivo | Responsabilidad |
+| Entrada | Responsabilidad |
 | --- | --- |
-| [src/main.js](../src/main.js) | Entrada Electron, requisito Windows, argumentos y salida coordinada con before-quit. |
-| [src/manifest.js](../src/manifest.js) | Parseo de CLI/JSON, validación del soporte actual, valores predeterminados y resolución de rutas. |
-| [src/server.js](../src/server.js) | Puerto, spawn, logs, readiness TCP, detección de salida y cierre del proceso directo. |
-| [src/launcher.js](../src/launcher.js) | Ventana, sesiones, WebContentsView, estados, navegación, recuperación e IPC local. |
-| [src/load-page.js](../src/load-page.js) | Carga de URL con timeout y cancelación mediante AbortSignal. |
-| [src/security.js](../src/security.js) | Identidad por nombre, validación de URL, denegación de permisos y filtro de documentos por sesión/vista. |
-| [src/ui](../src/ui) | Pantallas locales de carga/error y preload mínimo para solicitar una recarga. |
-| [examples/node](../examples/node) | Servidor de referencia, manifiesto y web de demostración. |
+| [main.js](../src/main.js) | Inicio Windows, CLI y cierre coordinado con `before-quit`. |
+| [manifest.js](../src/manifest.js), [esquema](../src/manifest.schema.json) | CLI/JSON, estructura Ajv, contratos entre campos, defaults y rutas. |
+| [launcher.js](../src/launcher.js) | Ventana, vistas/sesiones, estados, navegación, recuperación, atajos e IPC. |
+| [server.js](../src/server.js) | Spawn, readiness/reintentos, supervisión detached y cierre. |
+| [ports.js](../src/ports.js), [processes.js](../src/processes.js) | Selección/propietario de puerto, CIM PID/fecha y terminación de árboles. |
+| [runtimes.js](../src/runtimes.js), [stdout-ready.js](../src/stdout-ready.js) | Python/npm/batch; regexp stdout en worker cancelable. |
+| [load-page.js](../src/load-page.js) | Carga con timeout/AbortSignal. |
+| [security.js](../src/security.js) | Identidad NFC/hash, URL, permisos y filtro de documentos por sesión/vista. |
+| [downloads.js](../src/downloads.js) | Guardar, nombres, cancelación y coordinación de vistas por sesión. |
+| [log-buffer.js](../src/log-buffer.js), [log-writer.js](../src/log-writer.js) | Líneas/ANSI/CR, límites, escritura agrupada y rotación. |
+| [ui/](../src/ui) | Estado/error y visor xterm, con preloads mínimos separados. |
+| [examples/](../examples/README.md) | Servidores/manifiestos de referencia. |
 
 ## Ciclo de vida
 
-1. `main.js` espera a Electron y crea un `Launcher`.
-2. `start(argv)` valida el manifiesto, prepara el perfil y muestra el estado `starting` en el contenido local de BrowserWindow.
-3. `LocalServer.start()` reserva/libera el puerto, ejecuta el comando y comprueba TCP cada 100 ms.
-4. Se crea la WebContentsView con la sesión persistente de la aplicación. `loadPage()` carga la URL con su propio plazo.
-5. Solo tras la carga se muestra y enfoca la vista, con estado `running`. Los fallos llevan a `error`, distinguiendo arranque, servidor y página.
-6. `close()` cancela la carga y devuelve siempre la misma promesa de cierre. `dispose()` espera al servidor, retira handlers/políticas y destruye las vistas; estado `closed`.
+1. `main` espera a Electron; `Launcher.start` valida CLI/manifiesto, crea perfil, LogWriter, ventana de estado y vista de log.
+2. `LocalServer.start` reserva/libera puerto, resuelve runtime, lanza y verifica readiness/propietario. Un AbortController y plazo abarcan todos los intentos; solo los conflictos permiten reintentar.
+3. Tras readiness crea webView con sesión persistente, instala políticas y carga `startUrl` con plazo independiente. Estado `running` solo tras cargar.
+4. `state` (`idle/starting/running/error/closed`) y `activeView` (`content/log`) son independientes: F12 conserva web/servidor y el log puede seguir visible durante carga/error.
+5. Error de página permite recarga; si el renderer no responde, fuerza su salida antes de cargar. Error de servidor permite reinicio: espera cierre, sustituye webView/LocalServer y conserva ventana, sesión, logView, buffer y archivo.
+6. `close` cancela carga/descargas e inicia una única promesa; `LocalServer.stop` cancela/espera arranque y termina procesos. `dispose` espera logs, retira handlers/políticas y destruye vistas/ventana. `before-quit` espera ese cierre.
 
-Un error de página conserva el servidor y habilita recarga. Una vista sin respuesta se sustituye forzando la salida de su renderer antes de cargar de nuevo. La salida del servidor cancela cualquier carga pendiente. Un fallo inicial sin error de página intenta detener el servidor.
+## Invariantes
 
-## Invariantes al modificar el código
+- Web sin preload/Node, sandbox/contextIsolation; DevTools solo con `--debug`. Estado y log tienen sesiones temporales y APIs distintas. Validar emisor IPC; log además exige frame principal. Acciones de recuperación respetan estado/`closing`.
+- Filtrar documentos por protocolo/host/puerto/credenciales, incluidas redirecciones, ventanas e iframes iniciales. Electron admite un handler webRequest por evento/sesión: mantener el registro compartido y su limpieza. La excepción interna `devtools://devtools/` solo existe mientras haya una vista debug; la web registrada mantiene el filtro HTTP.
+- No usar `name` como ruta: `appIdentity` genera el hash NFC. Vistas con nombre igual comparten sesión; handlers de descargas no duplican ni cancelan operaciones de otra vista.
+- Observar rechazos de cargas canceladas y eventos de vistas antiguas. `statusRevision` evita recuperar un foco obsoleto. Cierre/terminación son idempotentes y acotados; no lanzar procesos después de cancelar.
+- Un puerto abierto no acredita propiedad. Mantener CIM/fechas para descendientes y PID reutilizados; no adoptar/matar un listener ajeno. No convertir instantáneas en garantías de cierre de ramas no observadas.
+- Readiness stdout recibe texto original antes del filtro ANSI. LogBuffer y writer sobreviven a reintentos/reinicios; límites en README. UI agrupa cambios cada 100 ms, consolida snapshots hasta ack y espera parser xterm entre bloques de 64 KiB. No reenviar controles OSC/cursor ni habilitar stdin.
 
-- Mantener el contenido web sin preload, Node.js ni DevTools, con sandbox y contextIsolation. El preload de estado solo expone recarga; su handler verifica el emisor y el estado del servidor.
-- Validar URL por protocolo, host, puerto y ausencia de credenciales. Cubrir enlaces, redirecciones, ventanas y carga inicial de iframes; `will-frame-navigate` por sí solo no cubre todos los casos.
-- Electron permite un handler webRequest por evento y sesión: `security.js` comparte el filtro y registra el puerto por webContentsId. Conservar esa coordinación y su limpieza si varias vistas comparten nombre.
-- No usar `name` como ruta literal. La interfaz local tiene sesión temporal separada; el perfil web se deriva de su hash.
-- Observar rechazos de cargas canceladas y comprobar `closing` antes de mostrar resultados. `statusRevision` evita que una pantalla anterior recupere el foco.
-- El timeout TCP y el de página son independientes. Las promesas de cierre son idempotentes; no sustituirlas por esperas indefinidas.
-- El log actual conserva 200 fragmentos y muestra hasta 12000 caracteres. No equivale al buffer por líneas ni a la rotación previstos.
-- La supervisión y el cierre de árboles del harness pertenecen a las pruebas; no aportan esas garantías al servidor de producción.
+## Verificar cambios
 
-## Validación de cambios
+```powershell
+npm.cmd test
+npm.cmd run test:smoke
+# Cambios de interfaz: exigir e inspeccionar capturas
+npm.cmd run test:smoke -- --require-captures
+```
 
-| Suite | Qué verifica |
+| Suite | Cobertura |
 | --- | --- |
-| `npm.cmd test` | Manifiestos, políticas de seguridad, carga/cancelación y servidores Node reales, sin Electron. |
-| `test/electron-smoke.js` | Launcher con Electron real: DOM, aislamiento, errores, recuperación, navegación, permisos y sesiones. |
-| `test/main-smoke.js` | Carga la entrada de producción `src/main.js` y comprueba el cierre del proceso directo por before-quit. |
-| `scripts/run-smoke.js` | Ejecuta ambas secuencias Electron, supervisa cada una durante 60 s y exige informes actuales/completos. |
+| `test/*.test.js` | Manifiesto, seguridad, carga, puertos/readiness/reintentos y servidores reales; hito2: runtimes/stdout/detached; hito3: árboles/cancelación; downloads/log: coordinación, límites y persistencia. |
+| [electron-smoke.js](../test/electron-smoke.js) | Launcher real: DOM/aislamiento, recuperación, navegación, archivos, perfiles, F12/xterm, DevTools y reinicio. Lista exigida en [smoke-checks.json](../test/smoke-checks.json); actualizar ambos juntos. |
+| [main-smoke.js](../test/main-smoke.js) | Entrada real y cierre de servidor/hijo/nieto detached por `before-quit`. |
+| [run-smoke.js](../scripts/run-smoke.js) | Ejecuta ambas secuencias; supervisión 210 s por secuencia (Launcher: 180 s interior), informes actuales/completos con ID/fecha/checks. |
 
-Para cambios de manifiesto/servidor/seguridad/carga, ejecuta la suite Node. Para cambios de ventana, IPC, navegación, recuperación o salida, ejecuta también `npm.cmd run test:smoke`. Si cambia la interfaz, usa `--require-captures` e inspecciona las imágenes.
+Suite Node para manifiesto/servidor/seguridad/carga; añadir Electron para ventana/IPC/navegación/recuperación/salida. Requieren Windows, Node/npm y Python/py; restricciones de CIM, conexiones locales o escritura pueden requerir permisos del entorno. Detener servidores antes de borrar su cwd en Windows.
 
-Las comprobaciones de Launcher se enumeran en [test/smoke-checks.json](../test/smoke-checks.json); actualiza esa lista y el harness juntos. El runner valida identificador, fecha, nombres y resultado para impedir falsos éxitos por informes antiguos.
+No ejecutar smoke en paralelo: comparte `artifacts/smoke/`. Allí genera perfiles separados del usuario, `results.json`, `main-results.json` y capturas `demo.png`, `error.png`, `renderer-error.png`, `log.png`; todo excluido de Git. Comprobar fecha/estado de captura para no usar una imagen antigua. Modo normal tolera fallos del compositor; `--require-captures` los hace fallar. [Última evidencia y límites](MILESTONES.md#validación).
 
-Los informes son `artifacts/smoke/results.json` y `main-results.json`; las capturas, `demo.png`, `error.png` y `renderer-error.png`. Cada ejecución registra si se capturaron: no atribuyas una imagen antigua al último resultado. El modo normal tolera fallos del compositor tras reintentos; `--require-captures` los convierte en fallo. Los perfiles de prueba están separados del perfil de usuario.
-
-Los límites de las pruebas y su último resultado medido están en [MILESTONES.md](MILESTONES.md). Al cambiar comportamiento, actualiza el contrato actual en README; conserva los requisitos futuros en SPEC.
+Al cambiar comportamiento, actualizar README; al completar requisitos, retirarlos de SPEC y actualizar MILESTONES. Versiones en package.json, contrato estructural en el esquema, nombres de checks en smoke-checks: evitar duplicarlos en esta guía.

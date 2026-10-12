@@ -1,0 +1,6 @@
+{
+  "name": "WebBox npm",
+  "command": "npm",
+  "args": ["run", "serve"],
+  "ready": { "type": "http", "path": "/", "timeoutMs": 15000 }
+}

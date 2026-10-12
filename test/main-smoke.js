@@ -13,12 +13,10 @@ fs.mkdirSync(profile, { recursive: true });
 app.setPath('userData', profile);
 const serverInfo = path.join(profile, 'server-info.json');
 const manifestFile = path.join(profile, 'entry.app.json');
-const code = 'const fs=require("node:fs");const http=require("node:http");const port=Number(process.env.PORT);'
-  + 'http.createServer((q,s)=>s.end("<!doctype html><h1>Entry point OK</h1>")).listen(port,"127.0.0.1",'
-  + '()=>fs.writeFileSync(' + JSON.stringify(serverInfo) + ',JSON.stringify({pid:process.pid,port})));';
 fs.writeFileSync(manifestFile, JSON.stringify({
   name: 'Main smoke ' + process.env.WEBBOX_TEST_RUN_ID, command: process.env.WEBBOX_TEST_NODE,
-  args: ['-e', code], ready: { type: 'port', timeoutMs: 5000 }
+  args: [path.join(__dirname, '../examples/process-tree/server.js')], env: { WEBBOX_TREE_INFO: serverInfo },
+  ready: { type: 'http', path: '/pids', timeoutMs: 15000 }
 }));
 process.argv = [process.argv[0], path.join(__dirname, '..'), manifestFile];
 let failure;
@@ -33,12 +31,13 @@ app.on('will-quit', () => {
   try {
     assert.equal(verified, true, failure?.stack);
     const info = JSON.parse(fs.readFileSync(serverInfo, 'utf8'));
-    assert.throws(() => process.kill(info.pid, 0));
+    assert.equal(info.pids.length, 3);
+    for (const pid of info.pids) assert.throws(() => process.kill(pid, 0));
     fs.writeFileSync(path.join(artifacts, 'main-results.json'), JSON.stringify({
       date: new Date().toISOString(), runId: process.env.WEBBOX_TEST_RUN_ID,
-      checks: [{ name: 'entrada real y before-quit terminan el proceso directo', result: 'passed' }]
+      checks: [{ name: 'entrada real y before-quit terminan el árbol del servidor', result: 'passed' }]
     }, null, 2));
-    console.log('PASS entrada real y before-quit terminan el proceso directo');
+    console.log('PASS entrada real y before-quit terminan el árbol del servidor');
   } catch (error) {
     console.error(error);
     process.exitCode = 1;
@@ -56,7 +55,7 @@ app.whenReady().then(async () => {
       await delay(25);
     }
     assert.ok(contents && !contents.isDestroyed());
-    assert.match(await contents.executeJavaScript('document.body.textContent'), /Entry point OK/);
+    assert.match(await contents.executeJavaScript('document.body.textContent'), /Tu web, en una ventana/);
     const info = JSON.parse(fs.readFileSync(serverInfo, 'utf8'));
     assert.equal(await isPortOpen(info.port), true);
     verified = true;

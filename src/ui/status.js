@@ -22,3 +22,15 @@ reload.addEventListener('click', () => {
   reload.disabled = true;
   window.webboxStatus.reloadPage();
 });
+const retry = document.getElementById('retry');
+retry.hidden = !failed || parameters.get('retry') !== 'true';
+retry.addEventListener('click', () => { retry.disabled = true; window.webboxStatus.restartServer(); });
+const log = document.getElementById('log');
+log.hidden = !failed || !details.textContent;
+log.addEventListener('click', () => {
+  details.hidden = !details.hidden;
+  log.textContent = details.hidden ? 'Ver log' : 'Ocultar log';
+});
+const exit = document.getElementById('exit');
+exit.hidden = !failed;
+exit.addEventListener('click', () => window.webboxStatus.exit());

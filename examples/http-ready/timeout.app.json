@@ -1,0 +1,7 @@
+{
+  "name": "WebBox HTTP timeout",
+  "command": "node",
+  "args": ["server.js"],
+  "env": { "WEBBOX_STARTUP_DELAY_MS": "5000" },
+  "ready": { "type": "http", "path": "/health", "timeoutMs": 1500 }
+}

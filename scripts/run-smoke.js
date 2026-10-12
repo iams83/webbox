@@ -19,14 +19,14 @@ function run(script, reportName, expectedChecks) {
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
-      console.error('La prueba ' + script + ' excedió 60 segundos.');
+      console.error('La prueba ' + script + ' excedió 210 segundos.');
       if (process.platform === 'win32' && child.pid) {
         const killer = spawn(path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'taskkill.exe'),
           ['/PID', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
         killer.on('error', () => child.kill('SIGKILL'));
         killer.on('exit', code => { if (code !== 0) child.kill('SIGKILL'); });
       } else child.kill('SIGKILL');
-    }, 60000);
+    }, 210000);
     child.once('error', error => { clearTimeout(timer); reject(error); });
     child.once('exit', code => {
       clearTimeout(timer);
@@ -52,7 +52,7 @@ function run(script, reportName, expectedChecks) {
 
 (async () => {
   await run('electron-smoke.js', 'results.json', checks);
-  await run('main-smoke.js', 'main-results.json', ['entrada real y before-quit terminan el proceso directo']);
+  await run('main-smoke.js', 'main-results.json', ['entrada real y before-quit terminan el árbol del servidor']);
 })().catch(error => {
   console.error(error.message);
   process.exitCode = 1;

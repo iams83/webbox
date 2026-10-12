@@ -64,3 +64,23 @@ test('las comprobaciones, solicitudes y permisos de dispositivos se deniegan', (
   assert.equal(handlers.device({ deviceType: 'usb' }), false);
   handlers.request(null, 'media', granted => assert.equal(granted, false));
 });
+
+test('debug autoriza el inspector interno y mantiene el filtro de la web', () => {
+  let handler;
+  const session = { webRequest: { onBeforeRequest: (_filter, fn) => handler = fn } };
+  const check = (id, url, type = 'mainFrame') => {
+    let result; handler({ webContentsId: id, url, resourceType: type }, value => result = value);
+    return result.cancel ?? false;
+  };
+  const removeNormal = restrictSessionNavigation(session, 1, 12345);
+  assert.equal(check(3, 'devtools://devtools/bundled/inspector.html'), true);
+  const removeDebug = restrictSessionNavigation(session, 2, 12345, true);
+  assert.equal(check(3, 'devtools://devtools/bundled/inspector.html'), false);
+  assert.equal(check(1, 'devtools://devtools/bundled/inspector.html'), true);
+  assert.equal(check(2, 'devtools://devtools/bundled/inspector.html', 'subFrame'), true);
+  assert.equal(check(3, 'https://example.com'), true);
+  assert.equal(check(3, 'devtools://other/inspector.html'), true);
+  removeDebug();
+  assert.equal(check(3, 'devtools://devtools/bundled/inspector.html'), true);
+  removeNormal();
+});

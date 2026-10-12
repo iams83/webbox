@@ -1,0 +1,8 @@
+{
+  "name": "WebBox HTTP lento",
+  "title": "WebBox · arranque HTTP lento",
+  "command": "node",
+  "args": ["server.js"],
+  "port": { "range": [43000, 43010] },
+  "ready": { "type": "http", "path": "/health", "timeoutMs": 10000 }
+}

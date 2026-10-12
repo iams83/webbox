@@ -4,10 +4,12 @@ const path = require('node:path');
 const fs = require('node:fs');
 const { randomUUID } = require('node:crypto');
 const { once } = require('node:events');
-const { app, BrowserWindow, WebContentsView, session, shell, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, WebContentsView, session, shell, ipcMain, dialog, clipboard } = require('electron');
 const { readManifest, parseArguments } = require('./manifest');
 const { LocalServer } = require('./server');
 const { loadPage } = require('./load-page');
+const { manageDownloads } = require('./downloads');
+const { LogBuffer } = require('./log-buffer');
 const { appIdentity, isLocalNavigation, isExternalUrl, denyPermissions, restrictSessionNavigation } = require('./security');
 
 const securePreferences = { contextIsolation: true, nodeIntegration: false, sandbox: true, devTools: false };
@@ -29,6 +31,10 @@ class Launcher {
     this.rendererUnresponsive = false;
     this.recoveringRenderer = false;
     this.statusRevision = 0;
+    this.restarting = false;
+    this.logs = new LogBuffer();
+    this.activeView = 'content';
+    this.logs.on('change', () => this.scheduleLogUpdate());
   }
 
   createWindow(manifest) {
@@ -45,6 +51,8 @@ class Launcher {
     this.window.setMenu(null);
     this.window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     this.window.webContents.on('will-navigate', event => event.preventDefault());
+    this.configureKeys(this.window.webContents);
+    this.createLogView();
     this.window.on('page-title-updated', event => event.preventDefault());
     this.window.on('resize', () => this.layout());
     this.window.on('close', event => {
@@ -57,27 +65,123 @@ class Launcher {
       }
     };
     ipcMain.on('webbox:reload-page', this.reloadHandler);
+    this.restartHandler = event => {
+      if (event.sender === this.window.webContents) void this.restartServer();
+    };
+    this.exitHandler = event => {
+      if (event.sender === this.window.webContents) void this.close();
+    };
+    ipcMain.on('webbox:restart-server', this.restartHandler);
+    ipcMain.on('webbox:exit', this.exitHandler);
   }
 
   layout() {
-    if (!this.webView || this.window.isDestroyed()) return;
+    if (!this.window || this.window.isDestroyed()) return;
     const [width, height] = this.window.getContentSize();
-    this.webView.setBounds({ x: 0, y: 0, width, height });
+    for (const view of [this.webView, this.logView]) view?.setBounds({ x: 0, y: 0, width, height });
+  }
+
+  createLogView() {
+    this.logView = new WebContentsView({ webPreferences: {
+      ...securePreferences, devTools: !!this.options?.debug, partition: 'webbox-log-' + randomUUID(),
+      preload: path.join(__dirname, 'ui', 'log-preload.js')
+    } });
+    const contents = this.logView.webContents;
+    denyPermissions(contents.session);
+    contents.on('will-navigate', event => event.preventDefault());
+    contents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    this.configureKeys(contents, true);
+    this.logActionHandler = (event, action, packet) => {
+      if (this.closing || event.sender !== contents || event.senderFrame !== contents.mainFrame) return;
+      if (action === 'ack') {
+        if (packet !== this.logPacket) return;
+        this.logInFlight = false;
+        if (this.logSentKey !== this.logs.revision + ':' + this.state || this.logNotice) this.scheduleLogUpdate();
+        return;
+      }
+      if (action === 'snapshot') this.logInFlight = false;
+      if (action === 'clear') this.logs.clear();
+      if (action === 'copy') {
+        void clipboard.writeText(this.logs.text()).then(() => this.sendLogUpdate('Log copiado.'))
+          .catch(error => this.sendLogUpdate('No se pudo copiar: ' + error.message));
+      }
+      else if (action === 'snapshot' || action === 'clear') this.sendLogUpdate();
+    };
+    ipcMain.on('webbox:log-action', this.logActionHandler);
+    this.window.contentView.addChildView(this.logView);
+    this.logView.setVisible(false);
+    this.layout();
+    this.logLoadPromise = contents.loadFile(path.join(__dirname, 'ui', 'log.html')).then(() => {
+      this.logReady = true;
+      this.sendLogUpdate();
+      this.refreshViews();
+    }).catch(error => {
+      if (!this.closing) { this.logLoadError = error; this.activeView = 'content'; this.refreshViews(); }
+    });
+  }
+
+  configureKeys(contents, debuggable = false) {
+    contents.on('before-input-event', (event, input) => {
+      if (input.key === 'F12') {
+        event.preventDefault();
+        if (input.type !== 'keyDown' || input.isAutoRepeat || this.closing) return;
+        if (input.control && input.shift && !input.alt && !input.meta) {
+          if (this.options?.debug && debuggable) {
+            if (contents.isDevToolsOpened()) contents.closeDevTools();
+            else contents.openDevTools({ mode: 'detach' });
+          }
+        } else if (!input.control && !input.shift && !input.alt && !input.meta) {
+          this.activeView = this.activeView === 'log' ? 'content' : 'log';
+          this.refreshViews(); this.sendLogUpdate();
+        }
+      } else if (input.control && input.shift && ['i', 'j'].includes(input.key.toLowerCase())) event.preventDefault();
+    });
+  }
+
+  refreshViews() {
+    if (this.closing || !this.window || this.window.isDestroyed()) return;
+    const log = this.activeView === 'log' && this.logReady;
+    this.logView?.setVisible(log);
+    this.webView?.setVisible(!log && this.state === 'running');
+    const contents = log ? this.logView.webContents : this.state === 'running' && this.webView ? this.webView.webContents : this.window.webContents;
+    contents.focus();
+  }
+
+  scheduleLogUpdate() {
+    if (this.closing || this.logTimer || this.activeView !== 'log') return;
+    this.logTimer = setTimeout(() => { this.logTimer = null; this.sendLogUpdate(); }, 100);
+  }
+
+  sendLogUpdate(message = '') {
+    if (message) this.logNotice = message;
+    if (this.closing || !this.logReady || !this.logView || this.logView.webContents.isDestroyed() || this.logInFlight) return;
+    this.logInFlight = true;
+    this.logPacket = (this.logPacket ?? 0) + 1;
+    this.logSentKey = this.logs.revision + ':' + this.state;
+    this.logView.webContents.send('webbox:log-data', {
+      ...this.logs.visibleSnapshot(), title: this.manifest?.title ?? 'WebBox', state: this.state,
+      packet: this.logPacket, message: this.logNotice || (this.state === 'error' ? this.error?.message : '') || ''
+    });
+    this.logNotice = '';
   }
 
   async status(state, message, details = '', kind = 'startup') {
     if (this.closing || this.window?.isDestroyed()) return;
     const revision = ++this.statusRevision;
     this.state = state;
+    this.errorKind = kind;
+    this.logs.write(state === 'error' ? 'stderr' : 'stdout', '[WebBox] ' + message + '\n');
+    this.scheduleLogUpdate();
     if (this.webView) this.webView.setVisible(false);
     try {
       await this.window.loadFile(path.join(__dirname, 'ui', 'status.html'), {
         query: {
           state, kind, title: this.manifest?.title ?? 'WebBox', message, details,
-          reload: String(kind === 'page' && !!this.server?.ready && !this.server?.failure)
+          reload: String(kind === 'page' && !!this.server?.ready && !this.server?.failure),
+          retry: String(state === 'error' && kind !== 'page' && !!this.manifest && !this.restarting)
         }
       });
-      if (revision === this.statusRevision && !this.closing) this.window.webContents.focus();
+      if (revision === this.statusRevision && !this.closing) this.refreshViews();
     } catch (error) {
       if (revision === this.statusRevision && !this.closing) throw error;
     }
@@ -85,7 +189,19 @@ class Launcher {
 
   configureWebView() {
     const contents = this.webView.webContents;
-    this.removeNavigationPolicy = restrictSessionNavigation(contents.session, contents.id, this.server.port);
+    this.configureKeys(contents, true);
+    const server = this.server;
+    this.removeDownloadPolicy = manageDownloads(contents, {
+      directory: app.getPath('downloads'),
+      log: text => server.log('stdout', text),
+      failed: message => {
+        if (this.closing || this.window.isDestroyed()) return;
+        void dialog.showMessageBox(this.window, {
+          type: 'error', title: 'WebBox: descarga', message, buttons: ['Aceptar']
+        }).catch(error => server.log('stderr', '[WebBox] ' + error.message + '\n'));
+      }
+    });
+    this.removeNavigationPolicy = restrictSessionNavigation(contents.session, contents.id, this.server.port, this.options.debug);
     const external = value => {
       if (isExternalUrl(value)) {
         Promise.resolve().then(() => this.openExternal(value)).catch(error => {
@@ -111,14 +227,17 @@ class Launcher {
       return { action: 'deny' };
     });
     contents.on('render-process-gone', (_event, details) => {
+      if (contents !== this.webView?.webContents) return;
       if (this.recoveringRenderer) return;
       this.handlePageFailure(new Error('La vista web se ha detenido (' + details.reason + '). Puedes volver a cargarla.'));
     });
     contents.on('unresponsive', () => {
+      if (contents !== this.webView?.webContents) return;
       this.rendererUnresponsive = true;
       this.handlePageFailure(new Error('La vista web no responde. Puedes volver a cargarla.'));
     });
     contents.on('did-fail-load', (_event, code, description, _url, isMainFrame) => {
+      if (contents !== this.webView?.webContents) return;
       if (isMainFrame && code !== -3 && this.state === 'running') {
         this.handlePageFailure(new Error('No se pudo cargar la página: ' + description + '.'));
       }
@@ -143,10 +262,10 @@ class Launcher {
       if (this.server.failure) throw this.server.failure;
       if (this.pageError) throw this.pageError;
       ++this.statusRevision;
-      this.webView.setVisible(true);
-      this.webView.webContents.focus();
       this.error = null;
       this.state = 'running';
+      this.refreshViews();
+      this.sendLogUpdate();
     } finally {
       this.loadingPage = false;
       this.pageLoadController = null;
@@ -195,12 +314,23 @@ class Launcher {
       const sessionPath = path.join(this.profileDirectory, 'session');
       fs.mkdirSync(sessionPath, { recursive: true });
       this.webSession = session.fromPath(sessionPath);
+      this.logs.persist(path.join(this.profileDirectory, 'logs'));
+      this.activeView = this.manifest.logOnStart ? 'log' : 'content';
       denyPermissions(this.webSession);
       this.createWindow(this.manifest);
       await this.status('starting', 'Preparando el servidor local…');
       if (this.closing) return this;
-      this.server = new LocalServer(this.manifest);
-      this.server.on('down', error => {
+      await this.launchServer();
+    } catch (error) {
+      await this.startupFailure(error);
+    }
+    return this;
+  }
+
+  async launchServer() {
+      const server = this.server = new LocalServer(this.manifest, this.logs);
+      server.on('down', error => {
+        if (server !== this.server) return;
         if (!this.closing) {
           this.error = error;
           this.pageLoadController?.abort(error);
@@ -209,13 +339,21 @@ class Launcher {
       });
       this.url = await this.server.start();
       if (this.closing) return this;
-      this.webView = new WebContentsView({ webPreferences: { ...securePreferences, session: this.webSession } });
+      this.webView = new WebContentsView({ webPreferences: {
+        ...securePreferences, devTools: !!this.options.debug, session: this.webSession, disableDialogs: false,
+        safeDialogs: true, safeDialogsMessage: 'Evitar que esta aplicación muestre más diálogos'
+      } });
       this.configureWebView();
       this.webView.setVisible(false);
       this.window.contentView.addChildView(this.webView);
+      // La vista de log debe permanecer por encima incluso si llega F12 durante la carga.
+      this.window.contentView.removeChildView(this.logView);
+      this.window.contentView.addChildView(this.logView);
       this.layout();
       await this.loadWebPage();
-    } catch (error) {
+  }
+
+  async startupFailure(error) {
       if (this.closing) return this;
       this.error = error;
       if (!this.window) this.createWindow();
@@ -223,12 +361,44 @@ class Launcher {
         this.error = new Error(error.message + '\n' + stopError.message);
       });
       await this.status('error', this.error.message, this.server?.tail() ?? '', this.pageError ? 'page' : this.server?.ready && this.server.failure ? 'server' : 'startup');
+  }
+
+  removeWebView() {
+    this.removeDownloadPolicy?.();
+    this.removeDownloadPolicy = null;
+    this.removeNavigationPolicy?.();
+    this.removeNavigationPolicy = null;
+    const view = this.webView;
+    this.webView = null;
+    if (!view) return;
+    if (!this.window.isDestroyed()) this.window.contentView.removeChildView(view);
+    if (!view.webContents.isDestroyed()) view.webContents.close();
+  }
+
+  async restartServer() {
+    if (this.closing || this.restarting || this.state !== 'error' || this.errorKind === 'page' || !this.manifest) return;
+    this.restarting = true;
+    try {
+      await this.status('starting', 'Reiniciando el servidor local…');
+      await this.server?.stop();
+      if (this.closing) return;
+      this.removeWebView();
+      this.error = null;
+      this.pageError = null;
+      this.rendererUnresponsive = false;
+      await this.launchServer();
+    } catch (error) {
+      this.restarting = false;
+      await this.startupFailure(error);
+    } finally {
+      this.restarting = false;
     }
-    return this;
   }
 
   close() {
     this.closing = true;
+    clearTimeout(this.logTimer);
+    this.removeDownloadPolicy?.();
     this.pageLoadController?.abort(new Error('Carga cancelada al cerrar la ventana.'));
     this.closePromise ??= this.dispose();
     return this.closePromise;
@@ -241,8 +411,14 @@ class Launcher {
       this.error = error;
       dialog.showErrorBox('WebBox: cierre del servidor', error.message);
     } finally {
+      await this.logs.close();
+      this.removeDownloadPolicy?.();
       this.removeNavigationPolicy?.();
       if (this.reloadHandler) ipcMain.removeListener('webbox:reload-page', this.reloadHandler);
+      if (this.restartHandler) ipcMain.removeListener('webbox:restart-server', this.restartHandler);
+      if (this.exitHandler) ipcMain.removeListener('webbox:exit', this.exitHandler);
+      if (this.logActionHandler) ipcMain.removeListener('webbox:log-action', this.logActionHandler);
+      if (this.logView && !this.logView.webContents.isDestroyed()) this.logView.webContents.close();
       if (this.webView && !this.webView.webContents.isDestroyed()) this.webView.webContents.close();
       if (this.window && !this.window.isDestroyed()) this.window.destroy();
       this.state = 'closed';

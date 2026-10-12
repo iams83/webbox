@@ -1,0 +1,7 @@
+{
+  "name": "WebBox árbol de procesos",
+  "title": "WebBox · Árbol de procesos",
+  "command": "node",
+  "args": ["server.js"],
+  "ready": { "type": "http", "path": "/pids" }
+}

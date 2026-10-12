@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+  <title>WebBox · Log</title>
+  <link rel="stylesheet" href="../../node_modules/@xterm/xterm/css/xterm.css">
+  <link rel="stylesheet" href="log.css">
+</head>
+<body>
+  <header>
+    <div class="brand">WEBBOX <span>Log del servidor</span></div>
+    <div class="heading"><h1 id="title">Registro de la aplicación</h1><span id="state" role="status">Arrancando</span></div>
+    <div class="toolbar">
+      <span class="hint">F12 para volver</span>
+      <div class="actions"><button id="clear">Limpiar</button><button id="copy">Copiar</button><button id="pause" aria-pressed="false">Pausar autoscroll</button></div>
+    </div>
+    <div class="legend"><span class="stdout">● stdout</span><span class="stderr">● stderr</span><span id="count">0 líneas</span><span>UTC · Solo lectura · xterm.js</span></div>
+    <p id="notice" role="status"></p>
+  </header>
+  <main id="terminal" aria-label="Salida del servidor"></main>
+  <script src="../../node_modules/@xterm/xterm/lib/xterm.js"></script>
+  <script src="../../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
+  <script src="log.js"></script>
+</body>
+</html>

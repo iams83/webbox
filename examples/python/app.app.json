@@ -1,0 +1,6 @@
+{
+  "name": "WebBox Python",
+  "command": "python",
+  "args": ["server.py"],
+  "ready": { "type": "stdout", "pattern": "READY España", "timeoutMs": 15000 }
+}

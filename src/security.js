@@ -38,17 +38,22 @@ function denyPermissions(session) {
 
 // webRequest cubre también la carga inicial de iframes, que puede omitir will-frame-navigate.
 const sessionViews = new WeakMap();
-function restrictSessionNavigation(session, contentsId, port) {
+function restrictSessionNavigation(session, contentsId, port, debug = false) {
   let views = sessionViews.get(session);
   if (!views) {
     views = new Map();
     sessionViews.set(session, views);
     session.webRequest.onBeforeRequest({ urls: ['<all_urls>'] }, (details, callback) => {
       if (!['mainFrame', 'subFrame'].includes(details.resourceType)) return callback({});
-      callback({ cancel: !isLocalNavigation(details.url, views.get(details.webContentsId)) });
+      const view = views.get(details.webContentsId);
+      // El inspector creado por Electron comparte sesión pero tiene otro ID.
+      // Solo --debug habilita su documento interno; la web registrada conserva
+      // siempre el filtro HTTP local, también para sus iframes.
+      if (!view && [...views.values()].some(value => value.debug) && details.url.startsWith('devtools://devtools/')) return callback({});
+      callback({ cancel: !isLocalNavigation(details.url, view?.port) });
     });
   }
-  views.set(contentsId, port);
+  views.set(contentsId, { port, debug });
   return () => views.delete(contentsId);
 }
 

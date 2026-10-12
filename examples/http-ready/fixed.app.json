@@ -1,0 +1,7 @@
+{
+  "name": "WebBox HTTP puerto fijo",
+  "command": "node",
+  "args": ["server.js"],
+  "port": { "fixed": 43000 },
+  "ready": { "type": "http", "path": "/health", "timeoutMs": 10000 }
+}

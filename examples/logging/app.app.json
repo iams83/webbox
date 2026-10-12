@@ -1,0 +1,7 @@
+{
+  "name": "WebBox log ANSI",
+  "title": "WebBox · Log ANSI",
+  "command": "node",
+  "args": ["server.js"],
+  "logOnStart": true
+}

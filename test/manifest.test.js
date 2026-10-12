@@ -83,11 +83,36 @@ test('timeouts fuera de límite y campos desconocidos fallan explícitamente', a
 });
 
 test('opciones pendientes se rechazan al activarlas y aceptan false', async t => {
-  for (const field of ['detached', 'singleInstance', 'logOnStart']) {
+  for (const field of ['singleInstance']) {
     await assert.rejects(readManifest(await fixture(t, { name: 'Prueba', command: 'node', [field]: true })), /no está implementado/);
   }
   await assert.rejects(readManifest(await fixture(t, { name: 'Prueba', command: 'node', window: { rememberBounds: true } })), /rememberBounds/);
   await readManifest(await fixture(t, { name: 'Prueba', command: 'node', detached: false, singleInstance: false, logOnStart: false }));
+});
+
+test('logOnStart admite true y por defecto vale false', async t => {
+  assert.equal((await readManifest(await fixture(t, { name: 'Logs', command: 'node' }))).logOnStart, false);
+  assert.equal((await readManifest(await fixture(t, { name: 'Logs', command: 'node', logOnStart: true }))).logOnStart, true);
+});
+
+test('puertos arg y placeholder tienen contratos separados y detached acepta port/http', async t => {
+  const arg = await readManifest(await fixture(t, { name: 'Arg', command: 'node', port: { mode: 'arg' } }));
+  assert.equal(arg.port.name, '--port');
+  const placeholder = await readManifest(await fixture(t, { name: 'Placeholder', command: 'node', port: { mode: 'placeholder' }, args: ['--port={PORT}'], detached: true }));
+  assert.equal(placeholder.detached, true);
+  for (const extra of [
+    { port: { mode: 'arg', name: '--port=evil' } }, { port: { mode: 'arg' }, args: ['--port', '1234'] },
+    { port: { mode: 'placeholder' } }, { port: { mode: 'placeholder', name: 'PORT' }, args: ['{PORT}'] },
+    { detached: true, ready: { type: 'stdout', pattern: 'READY' } }
+  ]) await assert.rejects(readManifest(await fixture(t, { name: 'Bad', command: 'node', ...extra })), /Manifiesto:/);
+});
+
+test('stdout exige una expresión regular válida y rechaza patrones sin stdout', async t => {
+  const manifest = await readManifest(await fixture(t, { name: 'Stdout', command: 'node', ready: { type: 'stdout', pattern: 'READY\\s+España' } }));
+  assert.equal(manifest.ready.pattern, 'READY\\s+España');
+  for (const ready of [{ type: 'stdout' }, { type: 'stdout', pattern: '[' }, { type: 'stdout', pattern: '' }, { type: 'stdout', pattern: 'x'.repeat(513) }, { type: 'port', pattern: 'READY' }]) {
+    await assert.rejects(readManifest(await fixture(t, { name: 'Bad', command: 'node', ready })), /ready.pattern/);
+  }
 });
 
 test('argumentos mantienen el nombre del fichero completo', () => {
@@ -96,4 +121,43 @@ test('argumentos mantienen el nombre del fichero completo', () => {
   });
   assert.throws(() => parseArguments(['a.json', 'b.json']), /único/);
   assert.throws(() => parseArguments(['--desconocido']), /desconocido/);
+});
+
+test('HTTP usa / por defecto y admite una ruta propia independiente de startUrl', async t => {
+  for (const ready of [{ type: 'http' }, { type: 'http', path: '/salud?modo=rápido', timeoutMs: 2500 }]) {
+    const manifest = await readManifest(await fixture(t, { name: 'HTTP', command: 'node', startUrl: '/app', ready }));
+    assert.deepEqual(manifest.ready, { type: 'http', path: ready.path ?? '/', timeoutMs: ready.timeoutMs ?? 30000 });
+    assert.equal(manifest.startUrl, '/app');
+  }
+});
+
+test('readiness HTTP rechaza rutas externas y opciones incompatibles por campo', async t => {
+  for (const ready of [
+    { type: 'http', path: '//example.com' }, { type: 'http', path: '/\\example.com' },
+    { type: 'http', path: 'https://example.com' }, { type: 'http', path: '/x\n' },
+    { type: 'http', path: null }, { type: 'port', path: '/health' }, { path: '/health' }
+  ]) {
+    await assert.rejects(readManifest(await fixture(t, { name: 'HTTP', command: 'node', ready })), /ready.path/);
+  }
+  for (const ready of [{ type: 'stdout' }, { type: 'http', pattern: 'READY' }]) {
+    await assert.rejects(readManifest(await fixture(t, { name: 'HTTP', command: 'node', ready })), /ready\.(type|pattern)/);
+  }
+});
+
+test('puerto fijo y rango inclusivo conservan sus valores y defaults', async t => {
+  for (const port of [{ fixed: 1 }, { fixed: 65535 }, { range: [3000, 3010] }, { range: [65535, 65535] }]) {
+    const manifest = await readManifest(await fixture(t, { name: 'Puertos', command: 'node', port }));
+    assert.deepEqual(manifest.port, { mode: 'env', name: 'PORT', ...port });
+  }
+});
+
+test('puertos y rangos inválidos se rechazan antes de ejecutar el comando', async t => {
+  for (const port of [
+    { fixed: 0 }, { fixed: 65536 }, { fixed: 1.2 }, { fixed: '3000' }, { fixed: null },
+    { range: null }, { range: '3000-3010' }, { range: [3000] }, { range: [3000, 3010, 3020] },
+    { range: [3010, 3000] }, { range: [0, 3000] }, { range: [3000, 65536] },
+    { range: [3000, '3010'] }, { fixed: 3000, range: [3000, 3010] }
+  ]) {
+    await assert.rejects(readManifest(await fixture(t, { name: 'Puertos', command: 'node', port })), /Manifiesto: port/);
+  }
 });

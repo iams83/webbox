@@ -8,6 +8,8 @@ main { width: min(100%, 640px); }
 button { padding: 10px 16px; border: 0; border-radius: 6px; background: #2665ae; color: white; font: inherit; cursor: pointer; }
 button:focus-visible { outline: 3px solid #192538; outline-offset: 3px; }
 button:disabled { opacity: .6; cursor: wait; }
+.actions { display: flex; flex-wrap: wrap; gap: 10px; }
+button.secondary { background: #e3eaf3; color: #294c77; }
 .label { margin-top: 24px; color: #52657e; font-size: 14px; }
 h1 { margin: 8px 0 16px; font-size: 32px; font-weight: 600; overflow-wrap: anywhere; }
 #message { font-size: 16px; line-height: 1.6; overflow-wrap: anywhere; }
