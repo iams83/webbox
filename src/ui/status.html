@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; base-uri 'none'; form-action 'none'">
+  <title>WebBox</title>
+  <link rel="stylesheet" href="status.css">
+</head>
+<body>
+  <main>
+    <div class="brand">WEBBOX <span>Servidor local</span></div>
+    <div class="indicator" aria-hidden="true"></div>
+    <p id="label" class="label">Arrancando</p>
+    <h1 id="title">WebBox</h1>
+    <p id="message" role="status">Preparando el servidor local…</p>
+    <pre id="details" hidden></pre>
+    <button id="reload" type="button" hidden>Volver a cargar la página</button>
+    <p id="hint" hidden>Cierra esta ventana para salir. Corrige el problema y vuelve a abrir el manifiesto.</p>
+  </main>
+  <script src="status.js"></script>
+</body>
+</html>

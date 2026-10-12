@@ -1,0 +1,11 @@
+{
+  "name": "webbox-demo",
+  "title": "WebBox · Prueba local",
+  "command": "node",
+  "args": ["server.js"],
+  "cwd": ".",
+  "port": { "mode": "env", "name": "PORT" },
+  "ready": { "type": "port", "timeoutMs": 30000 },
+  "startUrl": "/",
+  "window": { "width": 1100, "height": 760 }
+}

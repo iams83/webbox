@@ -1,0 +1,15 @@
+[
+  "web real en WebContentsView, aislamiento, título e interacción",
+  "falta de argumento produce ventana de error",
+  "JSON inválido produce ventana de error",
+  "runtime ausente produce causa en pantalla",
+  "timeout muestra error y termina el proceso directo",
+  "salida 0 prematura muestra diagnóstico",
+  "carga HTTP bloqueada tiene timeout y termina el servidor",
+  "cerrar durante la carga cancela la operación",
+  "caída del renderer muestra error y permite recargar desde la interfaz",
+  "vista sin respuesta muestra recuperación",
+  "salida después del arranque muestra servidor detenido",
+  "navegación local permitida y enlaces, redirecciones y ventanas externos controlados",
+  "sesiones por nombre y permisos denegados"
+]

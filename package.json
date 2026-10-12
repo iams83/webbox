@@ -1,0 +1,16 @@
+{
+  "name": "webbox",
+  "version": "0.1.0",
+  "description": "Lanzador de servidores web locales para Windows",
+  "private": true,
+  "main": "src/main.js",
+  "author": "",
+  "scripts": {
+    "start": "electron .",
+    "demo": "electron . examples/node/app.app.json",
+    "test": "node --test test/*.test.js",
+    "test:smoke": "node scripts/run-smoke.js"
+  },
+  "engines": { "node": ">=22.12.0" },
+  "devDependencies": { "electron": "44.7.0" }
+}
