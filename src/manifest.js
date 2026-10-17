@@ -68,18 +68,33 @@ async function readManifest(filename) {
   }
   objectField(data, 'raíz');
   validateSchema(data);
-  for (const field of ['name', 'command']) {
+  const isStatic = data.static !== undefined;
+  if (isStatic && data.command !== undefined) throw fieldError('command', 'no se admite junto a static.');
+  if (!isStatic && data.command === undefined) throw fieldError('command', 'es obligatorio salvo que se indique static.root.');
+  if (isStatic) {
+    noNul(data.static.root, 'static.root');
+    for (const field of ['args', 'env', 'cwd', 'detached']) {
+      if (data[field] !== undefined) throw fieldError(field, 'no se admite en modo static.');
+    }
+    for (const field of ['mode', 'name']) {
+      if (data.port?.[field] !== undefined) throw fieldError('port.' + field, 'no se admite en modo static; usa fixed o range.');
+    }
+    for (const field of ['type', 'path', 'pattern']) {
+      if (data.ready?.[field] !== undefined) throw fieldError('ready.' + field, 'no se admite en modo static; solo timeoutMs.');
+    }
+  }
+  for (const field of isStatic ? ['name'] : ['name', 'command']) {
     if (typeof data[field] !== 'string' || !data[field].trim()) {
       throw fieldError(field, 'es obligatorio y debe ser texto no vacío.');
     }
     noNul(data[field], field);
   }
   const command = data.command;
-  if (/\s/.test(command) && !/[\\/]/.test(command)) {
+  if (command && /\s/.test(command) && !/[\\/]/.test(command)) {
     throw fieldError('command', 'debe ser un ejecutable; separa los argumentos en args[].');
   }
   // & es válido en una ruta: con shell:false no tiene semántica de shell.
-  if (/[\u0000-\u001f"<>|]/.test(command)) {
+  if (command && /[\u0000-\u001f"<>|]/.test(command)) {
     throw fieldError('command', 'contiene caracteres que no pertenecen a un ejecutable.');
   }
   (data.args ?? []).forEach((arg, index) => noNul(arg, 'args[' + index + ']'));
@@ -148,7 +163,8 @@ async function readManifest(filename) {
   return {
     manifestPath, name: data.name, title: data.title ?? data.name,
     icon: data.icon ? path.resolve(baseDir, data.icon) : undefined,
-    command: /[\\/]/.test(command) ? path.resolve(baseDir, command) : command,
+    ...(isStatic ? { static: { root: path.resolve(baseDir, data.static.root) } }
+      : { command: /[\\/]/.test(command) ? path.resolve(baseDir, command) : command }),
     args: data.args ?? [], cwd: path.resolve(baseDir, data.cwd ?? '.'), env,
     port: { mode, name: portName,
       ...(port.fixed !== undefined ? { fixed: port.fixed } : {}),

@@ -1,0 +1,5 @@
+{
+  "name": "WebBox static demo",
+  "title": "WebBox · web estática",
+  "static": { "root": "public" }
+}

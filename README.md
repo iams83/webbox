@@ -1,8 +1,8 @@
 # WebBox
 
-Lanzador de servidores web locales para **Windows**, con Electron y JavaScript CommonJS. Lee un manifiesto, ejecuta el servidor sin consola y muestra su web en una ventana sin menú ni barra de direcciones.
+Lanzador de servidores web locales y webs estáticas para **Windows**, con Electron y JavaScript CommonJS. Lee un manifiesto, arranca el servidor sin consola y muestra su web en una ventana sin menú ni barra de direcciones. Las webs estáticas usan un servidor HTTP integrado y se pueden distribuir en un único `.exe` portable con la web y Electron incluidos.
 
-**Estado:** hitos 1–4 completos; incluye runtimes, readiness, navegación, archivos, recuperación y visor xterm.js. El siguiente trabajo es robustez (hito 5); aún no hay instalador ni ejecutable distribuible.
+**Estado:** hitos 1–4 completos; incluye runtimes, readiness, navegación, archivos, recuperación y visor xterm.js. Disponible empaquetado portable de webs estáticas. Siguen pendientes parte de la robustez (hito 5) y la distribución general/instalador (hito 6).
 
 ## Empezar
 
@@ -32,6 +32,52 @@ El servidor debe escuchar **solo en 127.0.0.1** y usar el puerto asignado (por d
 
 Para desarrollar: [guía del código y pruebas](docs/DEVELOPMENT.md) → [estado y validación](docs/MILESTONES.md). Los [requisitos pendientes](docs/SPEC.md) y [ejemplos](examples/README.md) completan el contexto.
 
+## Webs estáticas y ejecutable autónomo
+
+Un manifiesto estático no necesita `command` ni un runtime externo:
+
+```json
+{
+  "name": "mi-web",
+  "static": { "root": "./public" }
+}
+```
+
+`static.root` se resuelve desde el manifiesto. Sirve `/index.html` y recursos de esa carpeta por HTTP solo en `127.0.0.1`; admite `startUrl`, `port.fixed`/`port.range` y `ready.timeoutMs`. Sin puerto explícito, el sistema asigna uno libre al abrir directamente el listener. No lanza procesos ni usa comprobaciones CIM. Conserva navegación, aislamiento, descargas, logs y cierre de WebBox. Prueba `npm.cmd run demo:static`.
+
+Solo admite GET/HEAD, sin listado de directorios ni fallback de SPA. Resuelve índices de subcarpetas y MIME de módulos, CSS, imágenes y otros recursos. Rechaza rutas fuera de la raíz, archivos/carpetas ocultos, enlaces que salgan de ella, rutas Windows/ADS y hosts ajenos. El contenido de la carpeta pública debe ser distribuible. `command`, `args`, `env`, `cwd`, `detached`, `port.mode`/`name` y readiness de procesos no se admiten en modo estático.
+
+Para generar **un único ejecutable Windows x64**, desde la raíz de WebBox:
+
+```powershell
+# Singladura: instala dependencias si faltan, regenera el HTML y crea el EXE.
+npm.cmd run package:singladura
+# Si Singladura no esta en la carpeta hermana o quieres otro destino:
+npm.cmd run package:singladura -- -SingladuraPath C:\proyectos\singladura -OutputPath C:\entregas
+# Para reinstalar dependencias con npm ci antes de construir:
+npm.cmd run package:singladura -- -InstallDependencies
+```
+
+El script [build-singladura.ps1](scripts/build-singladura.ps1) localiza ambos proyectos desde su propia ruta; también se puede ejecutar directamente desde PowerShell. Necesita Node.js >=22.12.0 y npm en el equipo de construcción. Termina con un código de error si falla cualquier paso. Por defecto busca Singladura en `../singladura` y deja el EXE en `dist/` de WebBox.
+
+Para empaquetar un HTML ya generado o cualquier otra web:
+
+```powershell
+npm.cmd ci
+# HTML autónomo: copia exclusivamente ese archivo como index.html.
+npm.cmd run package:static -- C:\dev\node\singladura\singladura.html --name Singladura
+# Web con varios archivos: carpeta de salida que contiene index.html y sus recursos.
+npm.cmd run package:static -- C:\mi-web\public --name MiWeb
+# Destino opcional (fuera de la carpeta pública):
+npm.cmd run package:static -- C:\mi-web\public --name MiWeb --output C:\entregas
+```
+
+El resultado para Singladura es `dist/singladura-0.1.0-win-x64.exe`. Copia **solo ese `.exe`** a otro equipo Windows x64 compatible con Electron. No necesita Node.js, Python, un servidor instalado ni Internet para arrancar; las dependencias externas de cada web siguen siendo responsabilidad de esa web. La construcción sí puede descargar herramientas de empaquetado la primera vez. El comando empaqueta el HTML existente: regenera antes Singladura con su propio `npm run build` cuando cambien sus fuentes.
+
+El ejecutable incluye código y recursos en un ASAR dentro del portable; al iniciarse se extrae a una carpeta temporal de Windows. No requiere instalación ni administrador, pero sí permiso para escribir en temporales y en el perfil del usuario, donde conserva logs y almacenamiento del navegador. Las preferencias/datos guardados en ese perfil no viajan dentro del ejecutable. Singladura sigue abriendo y guardando sus documentos con sus propios controles; el empaquetado no incluye los documentos financieros del proyecto.
+
+La variante de carpeta copia sus recursos de forma recursiva; rechaza carpetas ocultas, `node_modules` y enlaces simbólicos para detectar entradas que no sean una salida pública. Un único HTML debe ser autónomo; si usa archivos relativos, utiliza la variante de carpeta. El portable no lleva firma Authenticode y usa el icono de Electron. Para reconstruirlo tras actualizar la web, repite el mismo comando.
+
 ## Contrato del manifiesto
 
 JSON UTF-8 con BOM opcional. [manifest.schema.json](src/manifest.schema.json) valida estructura, tipos y límites; [manifest.js](src/manifest.js) valida relaciones entre campos. Se rechazan campos desconocidos, NUL y opciones no implementadas; los objetos omitidos o parciales reciben defaults.
@@ -39,7 +85,8 @@ JSON UTF-8 con BOM opcional. [manifest.schema.json](src/manifest.schema.json) va
 | Campo | Default y comportamiento |
 | --- | --- |
 | `name` | Obligatorio, texto no vacío; identidad del perfil persistente. |
-| `command` | Obligatorio, ejecutable por PATH o ruta; argumentos separados, nunca una línea como `npm start`. |
+| `command` | Obligatorio en modo servidor externo, excluyente con `static`; ejecutable por PATH o ruta; argumentos separados, nunca una línea como `npm start`. |
+| `static.root` | Alternativa a `command`: carpeta pública servida por el HTTP integrado, relativa al manifiesto. Ver empaquetado estático arriba. |
 | `args` / `env` | `[]` / `{}`; textos, con sustitución de `{PORT}`. `env` amplía el entorno heredado. |
 | `cwd` | Carpeta del manifiesto. |
 | `title` / `icon` | `name` / icono de Electron; `icon` puede indicar un archivo. El título nativo no cambia con el de la web. |

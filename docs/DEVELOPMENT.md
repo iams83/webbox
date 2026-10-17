@@ -10,6 +10,9 @@ Lee primero el [contrato actual](../README.md), luego esta guía. [MILESTONES.md
 | [manifest.js](../src/manifest.js), [esquema](../src/manifest.schema.json) | CLI/JSON, estructura Ajv, contratos entre campos, defaults y rutas. |
 | [launcher.js](../src/launcher.js) | Ventana, vistas/sesiones, estados, navegación, recuperación, atajos e IPC. |
 | [server.js](../src/server.js) | Spawn, readiness/reintentos, supervisión detached y cierre. |
+| [static-server.js](../src/static-server.js) | HTTP estático dentro del proceso, MIME, rutas públicas y cierre. Lee también recursos de ASAR. |
+| [package-static.js](../scripts/package-static.js) | Prepara HTML/carpeta pública y manifiesto incluido; electron-builder genera un `.exe` portable x64. |
+| [build-singladura.ps1](../scripts/build-singladura.ps1) | `npm.cmd run package:singladura`: instala dependencias ausentes, regenera el HTML de Singladura y lo empaqueta; permite personalizar las rutas de origen y destino. |
 | [ports.js](../src/ports.js), [processes.js](../src/processes.js) | Selección/propietario de puerto, CIM PID/fecha y terminación de árboles. |
 | [runtimes.js](../src/runtimes.js), [stdout-ready.js](../src/stdout-ready.js) | Python/npm/batch; regexp stdout en worker cancelable. |
 | [load-page.js](../src/load-page.js) | Carga con timeout/AbortSignal. |
@@ -22,7 +25,7 @@ Lee primero el [contrato actual](../README.md), luego esta guía. [MILESTONES.md
 ## Ciclo de vida
 
 1. `main` espera a Electron; `Launcher.start` valida CLI/manifiesto, crea perfil, LogWriter, ventana de estado y vista de log.
-2. `LocalServer.start` reserva/libera puerto, resuelve runtime, lanza y verifica readiness/propietario. Un AbortController y plazo abarcan todos los intentos; solo los conflictos permiten reintentar.
+2. Con `command`, `LocalServer.start` reserva/libera puerto, resuelve runtime, lanza y verifica readiness/propietario. Un AbortController y plazo abarcan todos los intentos; solo los conflictos permiten reintentar. Con `static.root`, `StaticServer` abre directamente un listener HTTP loopback sin proceso externo. En un paquete sin argumento de manifiesto, Launcher usa `embedded/app.app.json` dentro de `app.asar`.
 3. Tras readiness crea webView con sesión persistente, instala políticas y carga `startUrl` con plazo independiente. Estado `running` solo tras cargar.
 4. `state` (`idle/starting/running/error/closed`) y `activeView` (`content/log`) son independientes: F12 conserva web/servidor y el log puede seguir visible durante carga/error.
 5. Error de página permite recarga; si el renderer no responde, fuerza su salida antes de cargar. Error de servidor permite reinicio: espera cierre, sustituye webView/LocalServer y conserva ventana, sesión, logView, buffer y archivo.
@@ -52,8 +55,12 @@ npm.cmd run test:smoke -- --require-captures
 | [electron-smoke.js](../test/electron-smoke.js) | Launcher real: DOM/aislamiento, recuperación, navegación, archivos, perfiles, F12/xterm, DevTools y reinicio. Lista exigida en [smoke-checks.json](../test/smoke-checks.json); actualizar ambos juntos. |
 | [main-smoke.js](../test/main-smoke.js) | Entrada real y cierre de servidor/hijo/nieto detached por `before-quit`. |
 | [run-smoke.js](../scripts/run-smoke.js) | Ejecuta ambas secuencias; supervisión 210 s por secuencia (Launcher: 180 s interior), informes actuales/completos con ID/fecha/checks. |
+| [packaged-smoke.js](../test/packaged-smoke.js) | `npm.cmd run test:packaged`: ejecuta la Singladura del ASAR final, comprueba DOM/navegación/Web Crypto/aislamiento y trata de capturar la interfaz. |
+| [test-portable.js](../scripts/test-portable.js) | `npm.cmd run test:portable`: copia el EXE de Singladura a una carpeta temporal, elimina Node del PATH heredado, verifica web/ventana y cierra con WM_CLOSE. |
 
 Suite Node para manifiesto/servidor/seguridad/carga; añadir Electron para ventana/IPC/navegación/recuperación/salida. Requieren Windows, Node/npm y Python/py; restricciones de CIM, conexiones locales o escritura pueden requerir permisos del entorno. Detener servidores antes de borrar su cwd en Windows.
+
+Para repetir la validación del paquete, genera primero el portable con `npm.cmd run package:static -- C:\dev\node\singladura\singladura.html --name Singladura`, después ejecuta `npm.cmd run test:packaged` y `npm.cmd run test:portable`. Estas dos pruebas están dirigidas a Singladura; el empaquetador admite cualquier HTML autónomo o carpeta pública. Usan `dist/win-unpacked/resources/app.asar` y `dist/singladura-0.1.0-win-x64.exe` por defecto; admiten una ruta alternativa como primer argumento. Guardan evidencia en `artifacts/package/`. La prueba del ASAR usa un perfil aislado; la del EXE usa el perfil normal de la aplicación empaquetada y solo abre/cierra su pantalla vacía. No sustituye una prueba en otro equipo Windows limpio.
 
 No ejecutar smoke en paralelo: comparte `artifacts/smoke/`. Allí genera perfiles separados del usuario, `results.json`, `main-results.json` y capturas `demo.png`, `error.png`, `renderer-error.png`, `log.png`; todo excluido de Git. Comprobar fecha/estado de captura para no usar una imagen antigua. Modo normal tolera fallos del compositor; `--require-captures` los hace fallar. [Última evidencia y límites](MILESTONES.md#validación).
 

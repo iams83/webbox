@@ -107,6 +107,19 @@ app.whenReady().then(async () => {
       assert.equal(await isPortOpen(port), false);
       assert.throws(() => process.kill(pid, 0));
     });
+    await check('web estática integrada carga recursos sin proceso externo y cierra el puerto', async () => {
+      const instance = launcher();
+      await instance.start([path.join(__dirname, '../examples/static/app.app.json')]);
+      assert.equal(instance.state, 'running', instance.error?.message);
+      assert.equal(instance.server.child, undefined);
+      const contents = instance.webView.webContents;
+      await waitFor(async () => (await contents.executeJavaScript('document.getElementById("result").textContent')) === 'JavaScript estático activo.');
+      assert.deepEqual(await contents.executeJavaScript('[typeof require, typeof process]'), ['undefined', 'undefined']);
+      assert.equal(await contents.executeJavaScript('getComputedStyle(document.body).maxWidth'), '800px');
+      const port = instance.server.port;
+      await instance.close();
+      assert.equal(await isPortOpen(port), false);
+    });
     await check('falta de argumento produce ventana de error', async () => {
       const instance = launcher();
       await instance.start([]);

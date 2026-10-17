@@ -7,6 +7,7 @@ const { once } = require('node:events');
 const { app, BrowserWindow, WebContentsView, session, shell, ipcMain, dialog, clipboard } = require('electron');
 const { readManifest, parseArguments } = require('./manifest');
 const { LocalServer } = require('./server');
+const { StaticServer } = require('./static-server');
 const { loadPage } = require('./load-page');
 const { manageDownloads } = require('./downloads');
 const { LogBuffer } = require('./log-buffer');
@@ -307,7 +308,7 @@ class Launcher {
   async start(argv) {
     try {
       this.options = parseArguments(argv);
-      this.manifest = await readManifest(this.options.manifestPath);
+      this.manifest = await readManifest(this.options.manifestPath ?? (app.isPackaged ? path.join(app.getAppPath(), 'embedded', 'app.app.json') : undefined));
       if (this.closing) return this;
       // El hash evita usar nombres de manifiesto como rutas o identificadores de Chromium.
       this.profileDirectory = path.join(app.getPath('userData'), 'apps', appIdentity(this.manifest.name));
@@ -328,7 +329,8 @@ class Launcher {
   }
 
   async launchServer() {
-      const server = this.server = new LocalServer(this.manifest, this.logs);
+      const Server = this.manifest.static ? StaticServer : LocalServer;
+      const server = this.server = new Server(this.manifest, this.logs);
       server.on('down', error => {
         if (server !== this.server) return;
         if (!this.closing) {

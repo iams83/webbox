@@ -2,11 +2,15 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "WebBox application manifest",
   "type": "object",
-  "required": ["name", "command"],
+  "required": ["name"],
   "additionalProperties": false,
   "properties": {
     "name": { "type": "string", "minLength": 1 },
     "command": { "type": "string", "minLength": 1 },
+    "static": {
+      "type": "object", "required": ["root"], "additionalProperties": false,
+      "properties": { "root": { "type": "string", "minLength": 1 } }
+    },
     "title": { "type": "string" },
     "icon": { "type": "string" },
     "cwd": { "type": "string", "minLength": 1 },

@@ -27,6 +27,19 @@ test('rutas relativas al manifiesto, con espacios, acentos y BOM', async t => {
   assert.equal(manifest.ready.timeoutMs, 30000);
 });
 
+test('modo static resuelve raíz sin comando y rechaza campos de procesos externos', async t => {
+  const filename = await fixture(t, { name: 'Estática', static: { root: './web España' } });
+  const manifest = await readManifest(filename);
+  assert.equal(manifest.static.root, path.join(path.dirname(filename), 'web España'));
+  assert.equal(manifest.command, undefined);
+  for (const extra of [{ command: 'node' }, { args: [] }, { env: {} }, { cwd: '.' }, { detached: false },
+    { port: { mode: 'env' } }, { ready: { type: 'stdout', pattern: 'READY' } },
+    { static: {} }, { static: { root: 'x\0y' } }]) {
+    await assert.rejects(readManifest(await fixture(t, { name: 'Bad', static: { root: '.' }, ...extra })), /Manifiesto:/);
+  }
+  await assert.rejects(readManifest(await fixture(t, { name: 'Bad' })), /command/);
+});
+
 test('mensajes comprensibles para manifiestos ausentes y JSON inválido', async t => {
   await assert.rejects(readManifest(), /Falta el manifiesto/);
   const filename = await fixture(t, '{mal');

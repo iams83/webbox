@@ -4,6 +4,7 @@ Desde la raíz, ejecutar `npm.cmd start -- RUTA` con uno de estos manifiestos:
 
 | Ruta | Comportamiento |
 | --- | --- |
+| `examples/static/app.app.json` | HTML, CSS y módulo JavaScript servidos por WebBox sin servidor ni runtime externo. `npm.cmd run demo:static`. |
 | `examples/node/app.app.json` | Node con puerto por variable de entorno y readiness TCP. |
 | `examples/logging/app.app.json` | Abre el visor xterm.js al iniciar, con ANSI y salida periódica; F12 vuelve a la web. |
 | `examples/process-tree/app.app.json` | Node directo con hijo y nieto detached; `/pids` muestra sus PID para comprobar el cierre. |
@@ -16,4 +17,4 @@ Desde la raíz, ejecutar `npm.cmd start -- RUTA` con uno de estos manifiestos:
 | `examples/port-args/app.app.json` | WebBox añade `--port PUERTO`; espera el patrón stdout `READY`. |
 | `examples/port-args/placeholder.app.json` | WebBox sustituye `{PORT}` en args sin imponer una variable de entorno. |
 
-Todos escuchan en 127.0.0.1 y reutilizan la demo. Node, logging, npm y detached ejecutan el servidor Node con descarga UTF-8 y subida sin almacenamiento; HTTP-ready, Python, port-args y process-tree solo sirven la página, sin endpoints de descarga/subida. Alert/confirm funcionan en todos. Cerrar la ventana termina los descendientes comprobados; protección ante muerte brusca pendiente.
+Todos escuchan en 127.0.0.1. El ejemplo estático incluye su propia página y el resto reutiliza la demo. Node, logging, npm y detached ejecutan el servidor Node con descarga UTF-8 y subida sin almacenamiento; HTTP-ready, Python, port-args y process-tree solo sirven la página, sin endpoints de descarga/subida. Alert/confirm funcionan en todos. Cerrar la ventana termina los descendientes comprobados; protección ante muerte brusca pendiente para servidores externos. En modo estático, el listener pertenece al propio proceso WebBox.

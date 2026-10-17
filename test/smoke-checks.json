@@ -1,5 +1,6 @@
 [
   "web real en WebContentsView, aislamiento, título e interacción",
+  "web estática integrada carga recursos sin proceso externo y cierra el puerto",
   "falta de argumento produce ventana de error",
   "JSON inválido produce ventana de error",
   "runtime ausente produce causa en pantalla",
