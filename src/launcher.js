@@ -4,14 +4,14 @@ const path = require('node:path');
 const fs = require('node:fs');
 const { randomUUID } = require('node:crypto');
 const { once } = require('node:events');
-const { app, BrowserWindow, WebContentsView, session, shell, ipcMain, dialog, clipboard } = require('electron');
+const { app, BrowserWindow, WebContentsView, session, shell, ipcMain, dialog, clipboard, nativeTheme } = require('electron');
 const { readManifest, parseArguments } = require('./manifest');
 const { LocalServer } = require('./server');
 const { StaticServer } = require('./static-server');
 const { loadPage } = require('./load-page');
 const { manageDownloads } = require('./downloads');
 const { LogBuffer } = require('./log-buffer');
-const { appIdentity, isLocalNavigation, isExternalUrl, denyPermissions, restrictSessionNavigation } = require('./security');
+const { appIdentity, isAllowedNavigation, isExternalUrl, denyPermissions, restrictSessionNavigation } = require('./security');
 
 const securePreferences = { contextIsolation: true, nodeIntegration: false, sandbox: true, devTools: false };
 
@@ -42,12 +42,22 @@ class Launcher {
     this.window = new BrowserWindow({
       ...(manifest?.window ?? { width: 820, height: 560 }),
       title: manifest?.title ?? 'WebBox', icon: manifest?.icon,
-      backgroundColor: '#f5f7fb', show: this.show, autoHideMenuBar: true,
+      backgroundColor: this.backgroundColor(), show: false, autoHideMenuBar: true,
       webPreferences: {
         ...securePreferences, partition: 'webbox-status-' + randomUUID(),
         preload: path.join(__dirname, 'ui', 'status-preload.js')
       }
     });
+    this.window.once('ready-to-show', () => {
+      if (this.show && !this.closing) this.window.show();
+    });
+    this.themeHandler = () => {
+      if (!this.closing && !this.window.isDestroyed()) {
+        this.window.setBackgroundColor(this.backgroundColor());
+        this.webView?.setBackgroundColor(this.backgroundColor());
+      }
+    };
+    nativeTheme.on('updated', this.themeHandler);
     denyPermissions(this.window.webContents.session);
     this.window.setMenu(null);
     this.window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -74,6 +84,10 @@ class Launcher {
     };
     ipcMain.on('webbox:restart-server', this.restartHandler);
     ipcMain.on('webbox:exit', this.exitHandler);
+  }
+
+  backgroundColor() {
+    return nativeTheme.shouldUseDarkColors ? '#202020' : '#f3f3f3';
   }
 
   layout() {
@@ -175,7 +189,7 @@ class Launcher {
     this.scheduleLogUpdate();
     if (this.webView) this.webView.setVisible(false);
     try {
-      await this.window.loadFile(path.join(__dirname, 'ui', 'status.html'), {
+      await this.window.loadFile(path.join(__dirname, 'ui', state === 'error' ? 'status.html' : 'loading.html'), {
         query: {
           state, kind, title: this.manifest?.title ?? 'WebBox', message, details,
           reload: String(kind === 'page' && !!this.server?.ready && !this.server?.failure),
@@ -202,7 +216,8 @@ class Launcher {
         }).catch(error => server.log('stderr', '[WebBox] ' + error.message + '\n'));
       }
     });
-    this.removeNavigationPolicy = restrictSessionNavigation(contents.session, contents.id, this.server.port, this.options.debug);
+    const allowedPrefixes = this.manifest.navigation.allowedPrefixes;
+    this.removeNavigationPolicy = restrictSessionNavigation(contents.session, contents.id, this.server.port, this.options.debug, allowedPrefixes);
     const external = value => {
       if (isExternalUrl(value)) {
         Promise.resolve().then(() => this.openExternal(value)).catch(error => {
@@ -215,7 +230,7 @@ class Launcher {
       }
     };
     const navigate = event => {
-      if (!isLocalNavigation(event.url, this.server.port)) {
+      if (!isAllowedNavigation(event.url, this.server.port, allowedPrefixes)) {
         event.preventDefault();
         if (event.isMainFrame !== false) external(event.url);
       }
@@ -307,8 +322,14 @@ class Launcher {
 
   async start(argv) {
     try {
-      this.options = parseArguments(argv);
-      this.manifest = await readManifest(this.options.manifestPath ?? (app.isPackaged ? path.join(app.getAppPath(), 'embedded', 'app.app.json') : undefined));
+      const embeddedManifestPath = app.isPackaged ? path.join(app.getAppPath(), 'embedded', 'app.app.json') : undefined;
+      this.options = parseArguments(argv, {
+        embeddedManifestPath: embeddedManifestPath && fs.existsSync(embeddedManifestPath) ? embeddedManifestPath : undefined
+      });
+      this.manifest = await readManifest(this.options.manifestPath);
+      if (this.manifest.static && this.options.appArgs.length) {
+        throw new Error('Esta aplicación es una web estática y no tiene un proceso Node o Python al que pasar argumentos.');
+      }
       if (this.closing) return this;
       // El hash evita usar nombres de manifiesto como rutas o identificadores de Chromium.
       this.profileDirectory = path.join(app.getPath('userData'), 'apps', appIdentity(this.manifest.name));
@@ -330,7 +351,7 @@ class Launcher {
 
   async launchServer() {
       const Server = this.manifest.static ? StaticServer : LocalServer;
-      const server = this.server = new Server(this.manifest, this.logs);
+      const server = this.server = new Server(this.manifest, this.logs, this.options.appArgs);
       server.on('down', error => {
         if (server !== this.server) return;
         if (!this.closing) {
@@ -345,6 +366,7 @@ class Launcher {
         ...securePreferences, devTools: !!this.options.debug, session: this.webSession, disableDialogs: false,
         safeDialogs: true, safeDialogsMessage: 'Evitar que esta aplicación muestre más diálogos'
       } });
+      this.webView.setBackgroundColor(this.backgroundColor());
       this.configureWebView();
       this.webView.setVisible(false);
       this.window.contentView.addChildView(this.webView);
@@ -420,6 +442,7 @@ class Launcher {
       if (this.restartHandler) ipcMain.removeListener('webbox:restart-server', this.restartHandler);
       if (this.exitHandler) ipcMain.removeListener('webbox:exit', this.exitHandler);
       if (this.logActionHandler) ipcMain.removeListener('webbox:log-action', this.logActionHandler);
+      if (this.themeHandler) nativeTheme.removeListener('updated', this.themeHandler);
       if (this.logView && !this.logView.webContents.isDestroyed()) this.logView.webContents.close();
       if (this.webView && !this.webView.webContents.isDestroyed()) this.webView.webContents.close();
       if (this.window && !this.window.isDestroyed()) this.window.destroy();

@@ -61,9 +61,10 @@ function httpReady(port, readyPath, signal, timeoutMs) {
 }
 
 class LocalServer extends EventEmitter {
-  constructor(manifest, logs = new LogBuffer()) {
+  constructor(manifest, logs = new LogBuffer(), appArgs = []) {
     super();
     this.manifest = manifest;
+    this.appArgs = [...appArgs];
     this.logs = logs;
     this.child = null;
     this.failure = null;
@@ -157,6 +158,9 @@ class LocalServer extends EventEmitter {
 
   async prepareRuntime() {
     const manifest = this.manifest;
+    if (manifest.port.mode === 'arg' && this.appArgs.some(arg => arg === manifest.port.name || arg.startsWith(manifest.port.name + '='))) {
+      throw new Error('Los argumentos de la aplicación ya contienen ' + manifest.port.name + '; WebBox lo añade automáticamente.');
+    }
     const replacePort = value => value.replaceAll('{PORT}', String(this.port));
     const env = { ...process.env };
     // Electron usa esta variable durante las pruebas; no debe heredarse al servidor.
@@ -169,7 +173,8 @@ class LocalServer extends EventEmitter {
       if (!Object.keys(manifest.env).some(key => key.toUpperCase() === 'PORT')) setEnv(env, 'PORT', undefined);
       if (manifest.port.mode === 'arg') args = [...args, manifest.port.name, String(this.port)];
     }
-    this.runtime = await resolveRuntime(manifest.command, args, env, manifest.cwd, this.startController.signal);
+    // Los argumentos recibidos se conservan literalmente, incluido un posible {PORT}.
+    this.runtime = await resolveRuntime(manifest.command, [...args, ...this.appArgs], env, manifest.cwd, this.startController.signal);
     this.runtime.env = env;
     this.log('stdout', '[WebBox] Runtime: ' + this.runtime.label + '\n');
   }

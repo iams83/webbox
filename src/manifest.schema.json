@@ -17,6 +17,13 @@
     "args": { "type": "array", "items": { "type": "string" } },
     "env": { "type": "object", "additionalProperties": { "type": "string" } },
     "startUrl": { "type": "string" },
+    "navigation": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "allowedPrefixes": { "type": "array", "maxItems": 64, "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 2048 } }
+      }
+    },
     "detached": { "type": "boolean" },
     "singleInstance": { "type": "boolean" },
     "logOnStart": { "type": "boolean" },

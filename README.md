@@ -30,6 +30,20 @@ El servidor debe escuchar **solo en 127.0.0.1** y usar el puerto asignado (por d
 
 **Confianza:** WebBox ejecuta el comando sin pedir aprobación; usa manifiestos de confianza. `--trust` se acepta pero aún no cambia el comportamiento. `--debug` habilita DevTools con Ctrl+Shift+F12 en web/log. F12 alterna web/log sin recargar.
 
+El EXE pasa los argumentos de la línea de comandos al proceso Node o Python, después de `args[]` y del puerto que añade WebBox. Usa `--` para separar las opciones del lanzador de las de tu aplicación:
+
+```powershell
+webbox.exe C:\mi-app\app.app.json -- --archivo "C:\Mis datos\datos.json" --modo local
+# Durante el desarrollo:
+npm.cmd start -- examples/node/app.app.json -- --modo local
+# EXE con manifiesto integrado: no necesita la ruta del manifiesto.
+mi-app.exe -- --archivo "C:\Mis datos\datos.json"
+# Elegir otro manifiesto, también desde un EXE con uno integrado:
+mi-app.exe --manifest C:\mi-app\app.app.json -- --modo local
+```
+
+También admite argumentos directamente después del manifiesto (o directamente al EXE con manifiesto integrado). Antes de `--`, `--debug`, `--trust` y `--manifest` pertenecen a WebBox hasta que empieza la lista de argumentos de la aplicación. Después de `--`, todos los valores se pasan literalmente, incluidos opciones con esos nombres, argumentos vacíos y `{PORT}`. No se interpreta una línea de shell. Se conservan las restricciones de `.cmd/.bat` y no se permite sobrescribir el argumento de puerto gestionado por WebBox. Las webs estáticas no tienen un proceso Node/Python al que pasar argumentos: si se proporcionan, muestran un diagnóstico.
+
 Para desarrollar: [guía del código y pruebas](docs/DEVELOPMENT.md) → [estado y validación](docs/MILESTONES.md). Los [requisitos pendientes](docs/SPEC.md) y [ejemplos](examples/README.md) completan el contexto.
 
 ## Webs estáticas y ejecutable autónomo
@@ -50,31 +64,18 @@ Solo admite GET/HEAD, sin listado de directorios ni fallback de SPA. Resuelve í
 Para generar **un único ejecutable Windows x64**, desde la raíz de WebBox:
 
 ```powershell
-# Singladura: instala dependencias si faltan, regenera el HTML y crea el EXE.
-npm.cmd run package:singladura
-# Si Singladura no esta en la carpeta hermana o quieres otro destino:
-npm.cmd run package:singladura -- -SingladuraPath C:\proyectos\singladura -OutputPath C:\entregas
-# Para reinstalar dependencias con npm ci antes de construir:
-npm.cmd run package:singladura -- -InstallDependencies
-```
-
-El script [build-singladura.ps1](scripts/build-singladura.ps1) localiza ambos proyectos desde su propia ruta; también se puede ejecutar directamente desde PowerShell. Necesita Node.js >=22.12.0 y npm en el equipo de construcción. Termina con un código de error si falla cualquier paso. Por defecto busca Singladura en `../singladura` y deja el EXE en `dist/` de WebBox.
-
-Para empaquetar un HTML ya generado o cualquier otra web:
-
-```powershell
 npm.cmd ci
 # HTML autónomo: copia exclusivamente ese archivo como index.html.
-npm.cmd run package:static -- C:\dev\node\singladura\singladura.html --name Singladura
+npm.cmd run package:static -- C:\mi-web\mi-web.html --name MiWeb
 # Web con varios archivos: carpeta de salida que contiene index.html y sus recursos.
 npm.cmd run package:static -- C:\mi-web\public --name MiWeb
 # Destino opcional (fuera de la carpeta pública):
 npm.cmd run package:static -- C:\mi-web\public --name MiWeb --output C:\entregas
 ```
 
-El resultado para Singladura es `dist/singladura-0.1.0-win-x64.exe`. Copia **solo ese `.exe`** a otro equipo Windows x64 compatible con Electron. No necesita Node.js, Python, un servidor instalado ni Internet para arrancar; las dependencias externas de cada web siguen siendo responsabilidad de esa web. La construcción sí puede descargar herramientas de empaquetado la primera vez. El comando empaqueta el HTML existente: regenera antes Singladura con su propio `npm run build` cuando cambien sus fuentes.
+El resultado es `dist/miweb-<versión de WebBox>-win-x64.exe`. El destino predeterminado es siempre `dist/` de WebBox; `--output` permite elegir otra carpeta. Copia **solo ese `.exe`** a otro equipo Windows x64 compatible con Electron. No necesita Node.js, Python, un servidor instalado ni Internet para arrancar; las dependencias externas de cada web siguen siendo responsabilidad de esa web. La construcción sí puede descargar herramientas de empaquetado la primera vez. El comando empaqueta el HTML existente: genera antes la salida pública con las herramientas de tu proyecto cuando cambien sus fuentes.
 
-El ejecutable incluye código y recursos en un ASAR dentro del portable; al iniciarse se extrae a una carpeta temporal de Windows. No requiere instalación ni administrador, pero sí permiso para escribir en temporales y en el perfil del usuario, donde conserva logs y almacenamiento del navegador. Las preferencias/datos guardados en ese perfil no viajan dentro del ejecutable. Singladura sigue abriendo y guardando sus documentos con sus propios controles; el empaquetado no incluye los documentos financieros del proyecto.
+El ejecutable incluye código y recursos en un ASAR dentro del portable; al iniciarse se extrae a una carpeta temporal de Windows. No requiere instalación ni administrador, pero sí permiso para escribir en temporales y en el perfil del usuario, donde conserva logs y almacenamiento del navegador. Las preferencias/datos guardados en ese perfil no viajan dentro del ejecutable. Cada web conserva sus propios controles para abrir y guardar documentos; solo se empaquetan los archivos públicos de la entrada indicada.
 
 La variante de carpeta copia sus recursos de forma recursiva; rechaza carpetas ocultas, `node_modules` y enlaces simbólicos para detectar entradas que no sean una salida pública. Un único HTML debe ser autónomo; si usa archivos relativos, utiliza la variante de carpeta. El portable no lleva firma Authenticode y usa el icono de Electron. Para reconstruirlo tras actualizar la web, repite el mismo comando.
 
@@ -97,6 +98,7 @@ JSON UTF-8 con BOM opcional. [manifest.schema.json](src/manifest.schema.json) va
 | `ready.pattern` | Obligatorio solo para stdout; regexp JavaScript de 1–512 caracteres, sin delimitadores/flags. Worker sobre los últimos 65536 caracteres UTF-16 de stdout; conserva fragmentos, descarta exceso y no usa stderr. |
 | `ready.timeoutMs` | `30000`, entero 1–120000 ms para selección/runtime/readiness/reintentos. Cargar la página tiene otro plazo de esa duración. La limpieza puede añadir hasta 6 s de árbol y 6 s de proceso/pipes. |
 | `startUrl` | `/`; ruta que empieza por `/`, sin `//` inicial, barras inversas ni controles. Mismas restricciones para `ready.path`. |
+| `navigation.allowedPrefixes` | `[]`; prefijos HTTP/HTTPS adicionales que pueden abrirse dentro de WebBox. Siempre permite `http://localhost:PUERTO/` y `http://127.0.0.1:PUERTO/` con el puerto real del servidor. Admite `{PORT}`. |
 | `detached` | `false`; `true` acepta salida 0 del comando inicial y readiness port/http, vigila listener cada 500 ms. No admite stdout. |
 | `logOnStart` | `false`; `true` abre el visor desde el arranque. |
 | `window.width` / `height` | `1100` / `760` píxeles lógicos. |
@@ -104,6 +106,16 @@ JSON UTF-8 con BOM opcional. [manifest.schema.json](src/manifest.schema.json) va
 | `singleInstance` / `window.rememberBounds` | Omitidos o `false`; `true` todavía se rechaza. |
 
 `cwd`, `icon` y `command` con separadores se resuelven desde la carpeta del manifiesto; las rutas en args, desde `cwd` según el runtime. Los argumentos son literales salvo `{PORT}`. La ejecución usa `spawn`, `shell: false`, `windowsHide: true`. Arg/placeholder eliminan `PORT` heredado salvo declaración expresa en `env`.
+
+Por ejemplo, para mantener dentro de la ventana la documentación de una web además de la aplicación local, añade al manifiesto:
+
+```json
+"navigation": {
+  "allowedPrefixes": ["https://docs.example.com/app"]
+}
+```
+
+Este prefijo permite `/app` y sus subrutas, pero no `/application`, otro puerto ni un dominio parecido. Un prefijo terminado en `/` permite esa carpeta y sus descendientes. Los prefijos no admiten credenciales, consulta ni fragmento; las páginas visitadas sí pueden tener consulta y fragmento. `target="_blank"` y `window.open()` siempre abren fuera de WebBox, incluso cuando la URL está permitida.
 
 ## Runtimes
 
@@ -116,10 +128,10 @@ JSON UTF-8 con BOM opcional. [manifest.schema.json](src/manifest.schema.json) va
 
 ## Ejecución y límites
 
-- **Arranque:** reserva/libera puerto; un intento y hasta tres reintentos solo por conflictos de reserva, PID ajeno o `EADDRINUSE` en stderr. Cierra el intento anterior y conserva sus salidas. Automático/rango buscan de nuevo; fijo mantiene puerto. HTTP 503, timeout y fallos ordinarios no relanzan.
+- **Arranque:** muestra solo un cargador centrado sobre el fondo claro u oscuro del sistema, sin texto de diagnóstico ni destello blanco. La ventana se muestra cuando esa pantalla está preparada; la web se revela tras completar su carga. Si falla, aparece el diagnóstico con el mismo tema, también al cambiar el tema del sistema en vivo. Reserva/libera puerto; un intento y hasta tres reintentos solo por conflictos de reserva, PID ajeno o `EADDRINUSE` en stderr. Cierra el intento anterior y conserva sus salidas. Automático/rango buscan de nuevo; fijo mantiene puerto. HTTP 503, timeout y fallos ordinarios no relanzan.
 - **Propiedad y cierre:** `netstat` comprueba listener IPv4/PID; PowerShell/CIM acredita descendientes por parentesco y fecha. Rechaza listeners ajenos y propios en 0.0.0.0. Al cerrar, reiniciar o fallar el arranque, cancela operaciones y termina árboles comprobados con `taskkill /T /F`, incluso con padre salido. Si CIM falla, intenta terminar el proceso directo e informa. Son instantáneas: ramas no observadas, padres intermedios desaparecidos y cambios de puerto pueden impedir acreditar el árbol; no termina un servicio ajeno. No hay apagado suave ni protección ante muerte brusca de WebBox.
 - **Recuperación:** errores de servidor permiten reintentar conservando ventana, perfil y log. Errores de página, caída o falta de respuesta del renderer permiten recargar conservando el servidor. Detached vigila puerto/PID; su pérdida/cambio muestra servidor detenido.
-- **Navegación:** documentos principales/iframes solo HTTP en localhost/127.0.0.1 y puerto asignado, sin credenciales. Enlaces, redirecciones principales y ventanas externas se abren fuera solo con http/https/mailto; iframes externos se bloquean. Recursos/fetch siguen las reglas de Chromium.
+- **Navegación:** los documentos principales/iframes permanecen dentro si corresponden a localhost/127.0.0.1 con el puerto asignado o a `navigation.allowedPrefixes`, sin credenciales. Al pulsar un enlace o seguir una redirección principal fuera de esos prefijos, HTTP/HTTPS se abre en el navegador predeterminado del sistema; mailto usa el gestor de correo. `target="_blank"` y `window.open()` siempre se abren fuera, sin crear otra ventana Electron. Los iframes fuera de los prefijos se bloquean sin abrir el navegador. Recursos/fetch siguen las reglas de Chromium.
 - **Archivos y diálogos:** descarga HTTP/Blob mediante Guardar nativo, nombre saneado y confirmación de sobrescritura; cancelar al cerrar/sustituir vista, registrar resultado y avisar de fallo. Sin progreso/reanudación. Subida por `input type="file"`; alert/confirm nativos con protección frente a repetición; prompt no soportado.
 - **Aislamiento y perfiles:** web sin Node/preload, con sandbox/contextIsolation; permisos especiales y de dispositivos denegados, incluido File System Access. Perfil en `userData/apps/SHA256(name normalizado a NFC)/session`, sensible a mayúsculas; nombres iguales comparten almacenamiento, sin bloqueo de instancia única.
 

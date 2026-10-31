@@ -60,6 +60,22 @@ test('startUrl no puede escapar a un origen externo', async t => {
   }
 });
 
+test('el manifiesto admite prefijos adicionales HTTP/HTTPS y mantiene la navegación local por defecto', async t => {
+  const defaults = await readManifest(await fixture(t, { name: 'Default', command: 'node' }));
+  assert.deepEqual(defaults.navigation, { allowedPrefixes: [] });
+  const allowedPrefixes = ['https://docs.example.com/app/', 'http://localhost:{PORT}/extra/'];
+  const manifest = await readManifest(await fixture(t, { name: 'Prefixes', command: 'node', navigation: { allowedPrefixes } }));
+  assert.deepEqual(manifest.navigation.allowedPrefixes, allowedPrefixes);
+  for (const prefix of ['https://user:password@example.com/', 'file:///C:/web/', 'javascript:alert(1)',
+    'mailto:user@example.com', 'https://example.com/?q=1', 'https://example.com/#section',
+    'https://example.com/\n', 'https://example.com/{OTHER}']) {
+    await assert.rejects(readManifest(await fixture(t, {
+      name: 'Bad prefix', command: 'node', navigation: { allowedPrefixes: [prefix] }
+    })), /navigation.allowedPrefixes/);
+  }
+  await assert.rejects(readManifest(await fixture(t, { name: 'Bad', command: 'node', navigation: { allowedPrefixes: 'https://example.com/' } })), /navigation.allowedPrefixes/);
+});
+
 
 test('defaults se aplican también a objetos port y ready parciales', async t => {
   for (const port of [{}, { mode: 'env' }, { name: 'APP_PORT' }]) {
@@ -130,10 +146,33 @@ test('stdout exige una expresión regular válida y rechaza patrones sin stdout'
 
 test('argumentos mantienen el nombre del fichero completo', () => {
   assert.deepEqual(parseArguments(['C:\\Mis apps\\España.app.json', '--debug', '--trust']), {
-    manifestPath: 'C:\\Mis apps\\España.app.json', debug: true, trust: true
+    manifestPath: 'C:\\Mis apps\\España.app.json', debug: true, trust: true, appArgs: []
   });
-  assert.throws(() => parseArguments(['a.json', 'b.json']), /único/);
+  assert.deepEqual(parseArguments(['a.json', 'b.json', '--modo', 'España con espacios']).appArgs, ['b.json', '--modo', 'España con espacios']);
   assert.throws(() => parseArguments(['--desconocido']), /desconocido/);
+});
+
+test('separador CLI conserva literalmente opciones y argumentos de la aplicación', () => {
+  const args = ['--debug', '--trust', '--manifest', 'otra.json', '', 'España con espacios', 'a"b', '{PORT}', '&'];
+  const options = parseArguments(['app.json', '--', ...args]);
+  assert.equal(options.debug, false);
+  assert.equal(options.manifestPath, 'app.json');
+  assert.deepEqual(options.appArgs, args);
+  assert.throws(() => parseArguments(['app.json', '--', 'a\0b']), /NUL/);
+});
+
+test('un EXE con manifiesto integrado recibe argumentos sin confundirlos con otro manifiesto', () => {
+  const embeddedManifestPath = 'embedded/app.app.json';
+  const options = parseArguments(['datos.json', '--modo', 'prueba'], { embeddedManifestPath });
+  assert.equal(options.manifestPath, embeddedManifestPath);
+  assert.deepEqual(options.appArgs, ['datos.json', '--modo', 'prueba']);
+  assert.deepEqual(parseArguments(['--modo', 'prueba'], { embeddedManifestPath }).appArgs, ['--modo', 'prueba']);
+  const overridden = parseArguments(['--manifest', 'otra.json', '--debug', '--', '--debug'], { embeddedManifestPath });
+  assert.equal(overridden.manifestPath, 'otra.json');
+  assert.equal(overridden.debug, true);
+  assert.deepEqual(overridden.appArgs, ['--debug']);
+  assert.throws(() => parseArguments(['--manifest']), /Falta la ruta/);
+  assert.throws(() => parseArguments(['--manifest', 'a.json', '--manifest', 'b.json']), /único/);
 });
 
 test('HTTP usa / por defecto y admite una ruta propia independiente de startUrl', async t => {

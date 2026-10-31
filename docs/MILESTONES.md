@@ -15,18 +15,38 @@
 
 ## Validación
 
-Última ejecución funcional: **17 de octubre de 2026**. Incluye modo estático y ejecutable portable de Singladura.
+Validación funcional del lanzador: **17 de octubre de 2026**. Incluye el modo estático.
 
 | Comprobación | Resultado |
 | --- | --- |
 | `npm.cmd test` | 88 aprobadas, 0 fallos; pruebas de empaquetado repetidas tras el ajuste final: 4 aprobadas. |
 | `npm.cmd run test:smoke` | 32 checks de Launcher y 1 de entrada de producción aprobados; incluye HTML/CSS/módulos estáticos y cierre del puerto. |
-| `npm.cmd run test:packaged` | Singladura desde el ASAR final: arranque, navegación Patrimonio/Liquidez, aislamiento y Web Crypto; captura obtenida. |
-| `npm.cmd run test:portable` | EXE copiado solo a una carpeta temporal con espacios/acentos; arranque sin argumentos ni Node en PATH, web y ventana correctas, cierre libera puerto y proceso. |
 | Sintaxis JavaScript | 35 archivos `.js` válidos en src/scripts/test. |
-| Portable Singladura | `dist/singladura-0.1.0-win-x64.exe`, 101271688 bytes, sin firma. SHA-256 en `artifacts/package/portable-results.json`. |
 
-Entorno: Windows 10.0.26300 x64, Node host 24.19.0, Electron 44.7.0 (Node 24.21.0), Python/py 3.12.0, escala 100 %. Informes de `artifacts/smoke/` a las 16:14 UTC y de `artifacts/package/` a las 16:20 UTC, excluidos de Git; regeneración y supervisión en DEVELOPMENT. Las pruebas requieren ejecución fuera del sandbox para conexiones loopback, enlaces de carpetas y CIM.
+Entorno: Windows 10.0.26300 x64, Node host 24.19.0, Electron 44.7.0 (Node 24.21.0), Python/py 3.12.0, escala 100 %. Informes de `artifacts/smoke/` a las 16:14 UTC, excluidos de Git; regeneración y supervisión en DEVELOPMENT. Las pruebas requieren ejecución fuera del sandbox para conexiones loopback, enlaces de carpetas y CIM. La validación del empaquetador usa la demo estática propia; sus informes y captura se guardan en `artifacts/package/`.
+
+### Empaquetador genérico: 31 de octubre de 2026
+
+- `node --test test/package-static.test.js`: 5 aprobadas fuera del sandbox; incluye copia exclusiva del HTML y destino predeterminado independiente del nombre.
+- `npm.cmd run package:static -- examples/static/public --name "WebBox Demo"`: portable generado en `dist/webbox-demo-0.1.0-win-x64.exe`.
+- `npm.cmd run test:packaged`: aprobado; HTML, CSS y módulo desde el ASAR, Web Crypto y aislamiento. Captura obtenida en `artifacts/package/static-demo.png`.
+- `npm.cmd run test:portable`: falla al detectar el servidor integrado del EXE; la ejecución del portable queda sin validar.
+- `npm.cmd test`: 64 aprobadas y 25 fallidas, también fuera del sandbox. Los fallos afectan al arranque, readiness y supervisión de servidores en `hito2`, `hito3` y `server`; requieren una revisión separada. No se modificó el código de esas áreas.
+
+### Argumentos y pantalla de arranque: 31 de octubre de 2026
+
+- `node --test test/manifest.test.js test/arguments.test.js`: 23 aprobadas; CLI con/sin manifiesto integrado, argumentos literales, orden/puerto, reintentos y procesos Node/Python reales.
+- `npm.cmd run test:startup`: 4 recorridos aprobados; cargador sin diagnóstico, temas claro/oscuro con cambio en vivo, transición a la web, recarga tras error y cierre durante arranque. Capturas inspeccionadas e informe en `artifacts/startup/`.
+- Portable de la demo reconstruido; `npm.cmd run test:exe-args`: aprobados los dos recorridos EXE → Node/Python con espacios, comillas y argumentos vacíos. Se usa un manifiesto externo y programas que escriben los argumentos recibidos y terminan; esta prueba confirma la entrega de argumentos, no readiness HTTP.
+- `npm.cmd run test:packaged`: aprobado con el ASAR reconstruido; recursos estáticos, Web Crypto y aislamiento.
+- Suite completa `npm.cmd test`: 72 aprobadas y 22 fallidas de 94. Persisten fallos ya observados en readiness/propiedad/cierre de servidores; detalle de esta ejecución en `.tmp-startup-tests.log` (ignorado). Las nuevas pruebas de argumentos pasan dentro de esa ejecución.
+
+### Prefijos de navegación y enlaces externos: 31 de octubre de 2026
+
+- 41 pruebas aprobadas en `security`, `manifest`, `arguments`, `static-server` y `package-static`; cubren prefijos HTTP/HTTPS, puerto dinámico, límites de origen/ruta y aislamiento entre vistas de una sesión compartida.
+- `npm.cmd run test:navigation`: 6 recorridos aprobados con enlaces reales. Verifica ambos hosts locales, enlaces externos, `_blank` local/externo, prefijos adicionales, redirecciones, iframes bloqueados y error al abrir el navegador.
+- Portable de la demo reconstruido; los mismos 6 recorridos pasan con `npm.cmd run test:navigation -- dist/win-unpacked/resources/app.asar`. Informe final en `artifacts/navigation/results.json`. Las llamadas al navegador se recogen con un callback; no se abren pestañas reales.
+- `npm.cmd run test:startup`: 4 recorridos aprobados tras el cambio. No se repitió la suite completa de supervisión de procesos; sus últimos resultados y fallos constan arriba.
 
 Cobertura Node: esquema/defaults/rutas, runtimes, TCP/HTTP/stdout, reserva/rango/fijo/carreras, PID ajeno/wildcard, reintentos/plazos/cancelación, descendientes/detached, logs/rotación y fallos de disco. Electron añade web real, recuperación, aislamiento/permisos, navegación/iframes, descargas/subida/diálogos, F12/foco/ANSI/acciones/DevTools, reinicio y cierre de hijo/nieto desde ventana y `before-quit`. Casos concretos en los tests y [smoke-checks.json](../test/smoke-checks.json).
 

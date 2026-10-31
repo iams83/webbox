@@ -15,7 +15,8 @@ const exec = promisify(execFile);
 const system32 = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32');
 
 async function main() {
-  const executable = path.resolve(process.argv[2] ?? 'dist/singladura-0.1.0-win-x64.exe');
+  const executable = path.resolve(process.argv[2] ?? path.resolve(__dirname, `../dist/webbox-demo-${require('../package.json').version}-win-x64.exe`));
+  const expectedTitle = process.argv[3] ?? 'WebBox Demo';
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'webbox portable España '));
   let child, exited, owner, port;
   try {
@@ -51,11 +52,12 @@ async function main() {
     assert.ok(port, 'El portable no abrió su servidor integrado.');
     const response = await fetch(`http://127.0.0.1:${port}/`);
     assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type'), /text\/html/i);
     const html = await response.text();
-    assert.match(html, /Singladura/);
+    assert.ok(html.trim(), 'El servidor debe entregar el HTML empaquetado.');
     const { stdout: title } = await exec(path.join(system32, 'WindowsPowerShell/v1.0/powershell.exe'),
       ['-NoProfile', '-NonInteractive', '-Command', `(Get-Process -Id ${owner}).MainWindowTitle`], { windowsHide: true });
-    assert.match(title, /Singladura/);
+    assert.equal(title.trim(), expectedTitle);
     await exec(path.join(system32, 'WindowsPowerShell/v1.0/powershell.exe'),
       ['-NoProfile', '-NonInteractive', '-Command', `if (-not (Get-Process -Id ${owner}).CloseMainWindow()) { exit 1 }`], { windowsHide: true });
     await Promise.race([exited, delay(10000).then(() => { throw new Error('El portable no terminó al cerrar la ventana.'); })]);
@@ -63,8 +65,8 @@ async function main() {
     const report = { date: new Date().toISOString(), result: 'passed', executable,
       size: (await fs.stat(executable)).size, sha256: createHash('sha256').update(await fs.readFile(executable)).digest('hex'),
       checks: ['Únicamente el EXE en una ruta con espacios y acentos', 'Arranque sin argumentos y sin Node en PATH',
-        'HTTP sirve Singladura', 'Ventana Singladura', 'Cierre de ventana libera puerto y proceso'] };
-    const artifacts = path.resolve(__dirname, '../artifacts/package');
+        'HTTP sirve la web empaquetada', 'Título de ventana correcto', 'Cierre de ventana libera puerto y proceso'] };
+    const artifacts = path.resolve(process.argv[4] ?? path.resolve(__dirname, '../artifacts/package'));
     await fs.mkdir(artifacts, { recursive: true });
     await fs.writeFile(path.join(artifacts, 'portable-results.json'), JSON.stringify(report, null, 2));
     console.log('PASS portable autónomo: sin Node en PATH, web incluida y cierre limpio');

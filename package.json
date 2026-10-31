@@ -10,9 +10,11 @@
     "demo": "electron . examples/node/app.app.json",
     "demo:static": "electron . examples/static/app.app.json",
     "package:static": "node scripts/package-static.js",
-    "package:singladura": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/build-singladura.ps1",
     "test": "node --test test/*.test.js",
     "test:smoke": "node scripts/run-smoke.js",
+    "test:startup": "electron test/startup-smoke.js",
+    "test:navigation": "electron test/navigation-smoke.js",
+    "test:exe-args": "node scripts/test-executable-arguments.js",
     "test:packaged": "electron test/packaged-smoke.js",
     "test:portable": "node scripts/test-portable.js"
   },

@@ -18,10 +18,10 @@ async function fixture(t) {
 
 test('empaquetar un HTML copia solo ese archivo y crea un manifiesto relativo', async t => {
   const { root, stage } = await fixture(t);
-  const html = path.join(root, 'singladura.html');
+  const html = path.join(root, 'mi-web.html');
   await fs.writeFile(html, '<h1>Aplicación</h1>');
-  await fs.writeFile(path.join(root, 'finanzas.json'), 'privado');
-  const options = parseOptions([html, '--name', 'Singladura']);
+  await fs.writeFile(path.join(root, 'datos-privados.json'), 'privado');
+  const options = parseOptions([html, '--name', 'Mi Web']);
   await prepareStatic(options, stage);
   assert.deepEqual(await fs.readdir(stage), ['app.app.json', 'public']);
   assert.deepEqual(await fs.readdir(path.join(stage, 'public')), ['index.html']);
@@ -57,4 +57,11 @@ test('CLI valida nombres, opciones y valores antes de empaquetar', () => {
   assert.equal(parseOptions(['España.html']).slug, 'espana');
   for (const args of [[], ['x.html', '--name'], ['x.html', '--typo'], ['x.html', 'y.html'],
     ['x.html', '--name', '../escape'], ['x.html', '--name', '']]) assert.throws(() => parseOptions(args));
+});
+
+test('el destino predeterminado es dist de WebBox para cualquier nombre', () => {
+  for (const name of ['Mi Web', 'Otra aplicación', 'España']) {
+    assert.equal(parseOptions(['web.html', '--name', name]).output, path.resolve(__dirname, '../dist'));
+    assert.equal(parseOptions(['web.html', '--name', name, '--output', 'entregas']).output, path.resolve('entregas'));
+  }
 });

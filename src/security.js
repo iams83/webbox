@@ -30,6 +30,28 @@ function isExternalUrl(value) {
   }
 }
 
+function navigationPrefix(value) {
+  if (!isExternalUrl(value)) throw new Error('El prefijo debe ser una URL HTTP/HTTPS sin credenciales.');
+  const url = new URL(value);
+  if (!['http:', 'https:'].includes(url.protocol) || value.includes('?') || value.includes('#') || /[{}]/.test(value)) {
+    throw new Error('El prefijo debe ser una URL HTTP/HTTPS sin consulta ni fragmento.');
+  }
+  return url;
+}
+
+function isAllowedNavigation(value, port, allowedPrefixes = []) {
+  if (isLocalNavigation(value, port)) return true;
+  if (!isExternalUrl(value)) return false;
+  const url = new URL(value);
+  return allowedPrefixes.some(value => {
+    try {
+      const prefix = navigationPrefix(value.replaceAll('{PORT}', String(port)));
+      return url.origin === prefix.origin && (url.pathname === prefix.pathname
+        || url.pathname.startsWith(prefix.pathname.endsWith('/') ? prefix.pathname : prefix.pathname + '/'));
+    } catch { return false; }
+  });
+}
+
 function denyPermissions(session) {
   session.setPermissionCheckHandler(() => false);
   session.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
@@ -38,7 +60,7 @@ function denyPermissions(session) {
 
 // webRequest cubre también la carga inicial de iframes, que puede omitir will-frame-navigate.
 const sessionViews = new WeakMap();
-function restrictSessionNavigation(session, contentsId, port, debug = false) {
+function restrictSessionNavigation(session, contentsId, port, debug = false, allowedPrefixes = []) {
   let views = sessionViews.get(session);
   if (!views) {
     views = new Map();
@@ -48,13 +70,13 @@ function restrictSessionNavigation(session, contentsId, port, debug = false) {
       const view = views.get(details.webContentsId);
       // El inspector creado por Electron comparte sesión pero tiene otro ID.
       // Solo --debug habilita su documento interno; la web registrada conserva
-      // siempre el filtro HTTP local, también para sus iframes.
+      // siempre sus propios prefijos permitidos, también para sus iframes.
       if (!view && [...views.values()].some(value => value.debug) && details.url.startsWith('devtools://devtools/')) return callback({});
-      callback({ cancel: !isLocalNavigation(details.url, view?.port) });
+      callback({ cancel: !view || !isAllowedNavigation(details.url, view.port, view.allowedPrefixes) });
     });
   }
-  views.set(contentsId, { port, debug });
+  views.set(contentsId, { port, debug, allowedPrefixes: [...allowedPrefixes] });
   return () => views.delete(contentsId);
 }
 
-module.exports = { appIdentity, isLocalNavigation, isExternalUrl, denyPermissions, restrictSessionNavigation };
+module.exports = { appIdentity, isLocalNavigation, isAllowedNavigation, navigationPrefix, isExternalUrl, denyPermissions, restrictSessionNavigation };

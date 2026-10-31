@@ -3,6 +3,7 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const Ajv = require('ajv');
+const { navigationPrefix } = require('./security');
 const validate = new Ajv({ allErrors: false, strict: true }).compile(require('./manifest.schema.json'));
 
 function validateSchema(data) {
@@ -52,7 +53,7 @@ function localPath(value, field) {
 
 // El esquema valida la estructura; debajo se comprueban contratos entre campos.
 async function readManifest(filename) {
-  if (!filename) throw new Error('Falta el manifiesto. Uso: launcher.exe ruta\\al\\manifiesto.json [--debug] [--trust]');
+  if (!filename) throw new Error('Falta el manifiesto. Uso: launcher.exe ruta\\al\\manifiesto.json [--debug] [--trust] [-- argumentos de la aplicación]');
   const manifestPath = path.resolve(filename);
   let raw;
   try {
@@ -146,6 +147,11 @@ async function readManifest(filename) {
   const timeoutMs = ready.timeoutMs === undefined ? 30000 : ready.timeoutMs;
   const startUrl = data.startUrl === undefined ? '/' : data.startUrl;
   localPath(startUrl, 'startUrl');
+  const allowedPrefixes = data.navigation?.allowedPrefixes ?? [];
+  allowedPrefixes.forEach((prefix, index) => {
+    try { navigationPrefix(prefix.replaceAll('{PORT}', '12345')); }
+    catch (error) { throw fieldError('navigation.allowedPrefixes[' + index + ']', error.message); }
+  });
   const window = data.window === undefined ? {} : data.window;
   const windowOptions = { width: 1100, height: 760, minWidth: 480, minHeight: 320 };
   for (const field of Object.keys(windowOptions)) {
@@ -173,19 +179,30 @@ async function readManifest(filename) {
       ...(readyType === 'stdout' ? { pattern: ready.pattern } : {}) },
     detached: data.detached ?? false,
     logOnStart: data.logOnStart ?? false,
-    startUrl, window: windowOptions
+    startUrl, navigation: { allowedPrefixes }, window: windowOptions
   };
 }
 
-function parseArguments(argv) {
-  const options = { debug: false, trust: false, manifestPath: undefined };
-  for (const arg of argv) {
+function parseArguments(argv, { embeddedManifestPath } = {}) {
+  const options = { debug: false, trust: false, manifestPath: embeddedManifestPath, appArgs: [] };
+  let explicitManifest = false;
+  for (let index = 0; index < argv.length; index++) {
+    const arg = argv[index];
+    if (arg === '--') { options.appArgs = argv.slice(index + 1); break; }
     if (arg === '--debug') options.debug = true;
     else if (arg === '--trust') options.trust = true;
+    else if (arg === '--manifest') {
+      if (explicitManifest || options.manifestPath && !embeddedManifestPath) throw new Error('Indica un único fichero manifiesto.');
+      const value = argv[++index];
+      if (!value || value.startsWith('--')) throw new Error('Falta la ruta de --manifest.');
+      options.manifestPath = value;
+      explicitManifest = true;
+    }
+    else if (options.manifestPath) { options.appArgs = argv.slice(index); break; }
     else if (arg.startsWith('--')) throw new Error('Parámetro desconocido: ' + arg + '.');
-    else if (options.manifestPath) throw new Error('Indica un único fichero manifiesto.');
-    else options.manifestPath = arg;
+    else { options.manifestPath = arg; explicitManifest = true; }
   }
+  options.appArgs.forEach((arg, index) => noNul(arg, 'argumentos de aplicación[' + index + ']'));
   return options;
 }
 
