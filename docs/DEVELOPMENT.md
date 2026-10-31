@@ -12,12 +12,13 @@ Lee primero el [contrato actual](../README.md), luego esta guía. [MILESTONES.md
 | [launcher.js](../src/launcher.js) | Ventana, vistas/sesiones, estados, navegación, recuperación, atajos e IPC. |
 | [server.js](../src/server.js) | Spawn, readiness/reintentos, supervisión detached y cierre. |
 | [static-server.js](../src/static-server.js) | HTTP estático dentro del proceso, MIME, rutas públicas y cierre. Lee también recursos de ASAR. |
-| [package-static.js](../scripts/package-static.js) | Prepara HTML/carpeta pública y manifiesto incluido; electron-builder genera un `.exe` portable x64. |
+| [package-static.js](../scripts/package-static.js) | Prepara HTML/carpeta pública y manifiesto incluido; electron-builder genera un `.exe` portable x64. Con 26.15.3, `unpackDirName: true` omite `UNPACK_DIR_NAME` y usa `$PLUGINSDIR` por ejecución; `false` usa una ruta fija por construcción, pese a la descripción de su esquema. |
 | [ports.js](../src/ports.js), [processes.js](../src/processes.js) | Selección/propietario de puerto, CIM PID/fecha y terminación de árboles. |
 | [runtimes.js](../src/runtimes.js), [stdout-ready.js](../src/stdout-ready.js) | Python/npm/batch; regexp stdout en worker cancelable. |
 | [load-page.js](../src/load-page.js) | Carga con timeout/AbortSignal. |
 | [security.js](../src/security.js) | Identidad NFC/hash, URL, permisos y filtro de documentos por sesión/vista. |
 | [downloads.js](../src/downloads.js) | Guardar, nombres, cancelación y coordinación de vistas por sesión. |
+| [document-files.js](../src/document-files.js) | Documentos nativos opcionales: selecciones/activación, destino actual, escritura por temporal, comparación de cambios externos y permisos IPC por vista/frame/URL. |
 | [log-buffer.js](../src/log-buffer.js), [log-writer.js](../src/log-writer.js) | Líneas/ANSI/CR, límites, escritura agrupada y rotación. |
 | [ui/](../src/ui) | Estado/error y visor xterm, con preloads mínimos separados. |
 | [examples/](../examples/README.md) | Servidores/manifiestos de referencia. |
@@ -37,7 +38,7 @@ El empaquetador admite `--exe-icon` para los recursos nativos Windows y `--app-i
 
 ## Invariantes
 
-- Web sin preload/Node, sandbox/contextIsolation; DevTools solo con `--debug`. Estado y log tienen sesiones temporales y APIs distintas. Validar emisor IPC; log además exige frame principal. Acciones de recuperación respetan estado/`closing`.
+- Web sin Node, sandbox/contextIsolation y sin preload por defecto; `documents` añade únicamente `ui/document-preload.js` en la página local de inicio. Su canal es único por vista y cada invocación exige emisor/frame principal/URL exactos. Estado y log tienen sesiones temporales y APIs distintas. DevTools solo con `--debug`. Acciones de recuperación respetan estado/`closing`.
 - Filtrar documentos por los orígenes locales y los prefijos HTTP/HTTPS de cada manifiesto, comparando origen y límite de ruta, sin credenciales. Aplicar la misma política a redirecciones e iframes iniciales. Los enlaces principales fuera de ella se envían a `shell.openExternal`; las ventanas nuevas, incluido `_blank`, siempre se envían fuera. Electron admite un handler webRequest por evento/sesión: mantener el registro por vista y su limpieza para no compartir prefijos entre aplicaciones. La excepción interna `devtools://devtools/` solo existe mientras haya una vista debug.
 - No usar `name` como ruta: `appIdentity` genera el hash NFC. Vistas con nombre igual comparten sesión; handlers de descargas no duplican ni cancelan operaciones de otra vista.
 - Observar rechazos de cargas canceladas y eventos de vistas antiguas. `statusRevision` evita recuperar un foco obsoleto. Cierre/terminación son idempotentes y acotados; no lanzar procesos después de cancelar.
@@ -60,6 +61,7 @@ npm.cmd run test:smoke -- --require-captures
 | [main-smoke.js](../test/main-smoke.js) | Entrada real y cierre de servidor/hijo/nieto detached por `before-quit`. |
 | [run-smoke.js](../scripts/run-smoke.js) | Ejecuta ambas secuencias; supervisión 210 s por secuencia (Launcher: 180 s interior), informes actuales/completos con ID/fecha/checks. |
 | [arguments.test.js](../test/arguments.test.js) | Puerto/orden/reintentos y recepción literal de argumentos en procesos Node y Python reales; junto con `manifest.test.js`, cubre la CLI y manifiestos integrados. |
+| [document-files.test.js](../test/document-files.test.js) | Apertura/activación, selección lexicográfica por carpeta, carpetas vacías, Guardar/Guardar como, carpeta de selectores, cancelaciones, cambios externos, nombres relativos de portable y rechazo de emisores/frames/URLs ajenos. |
 | [startup-smoke.js](../test/startup-smoke.js) | `npm.cmd run test:startup`: cargador, transición a web estática, opciones CLI/identidad, puerto ocupado, icono ausente, diagnóstico, cambio de tema en vivo y cierre durante arranque; capturas claras/oscuras en `artifacts/startup/`. |
 | [navigation-smoke.js](../test/navigation-smoke.js) | `npm.cmd run test:navigation`: enlaces reales, ambos hosts locales, prefijos/rutas, `_blank`, redirecciones e iframes; recoge las aperturas externas sin abrir el navegador real. Admite la ruta del ASAR como primer argumento tras `--` para probar el código empaquetado. Informe en `artifacts/navigation/`. |
 | [test-executable-arguments.js](../scripts/test-executable-arguments.js) | `npm.cmd run test:exe-args`: ejecuta el portable con `--manifest`, comprueba puerto y argumentos recibidos por Node/Python, título CLI e icono nativo mediante WM_GETICON; cierra el diagnóstico de los programas de prueba que terminan inmediatamente. |

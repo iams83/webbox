@@ -67,6 +67,13 @@ test('el destino predeterminado es dist de WebBox para cualquier nombre', () => 
   }
 });
 
+test('el acceso a documentos se incluye en el manifiesto empaquetado solo si se solicita', async t => {
+  const { root, stage } = await fixture(t);
+  const html = path.join(root, 'app.html'); await fs.writeFile(html, 'web');
+  await prepareStatic(parseOptions([html, '--document-extensions', 'json,csv']), stage);
+  assert.deepEqual((await readManifest(path.join(stage, 'app.app.json'))).documents, { extensions: ['json', 'csv'] });
+});
+
 test('el icono del EXE se incluye como icono de ventana sin exponerlo en la carpeta pública', async t => {
   const { root, stage } = await fixture(t);
   const html = path.join(root, 'app.html');

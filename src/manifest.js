@@ -179,7 +179,7 @@ async function readManifest(filename) {
       ...(readyType === 'stdout' ? { pattern: ready.pattern } : {}) },
     detached: data.detached ?? false,
     logOnStart: data.logOnStart ?? false,
-    startUrl, navigation: { allowedPrefixes }, window: windowOptions
+    startUrl, navigation: { allowedPrefixes }, ...(data.documents ? { documents: data.documents } : {}), window: windowOptions
   };
 }
 
@@ -230,7 +230,7 @@ function applyOverrides(manifest, options) {
   }
   if (options.title !== undefined) result.title = options.title;
   // Las rutas del manifiesto son relativas al JSON; las de CLI, al cwd de invocación.
-  if (options.icon !== undefined) result.icon = path.resolve(options.icon);
+  if (options.icon !== undefined) result.icon = path.resolve(process.env.PORTABLE_EXECUTABLE_DIR || process.cwd(), options.icon);
   return result;
 }
 

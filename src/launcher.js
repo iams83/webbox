@@ -7,6 +7,7 @@ const { once } = require('node:events');
 const { app, BrowserWindow, WebContentsView, session, shell, ipcMain, dialog, clipboard, nativeTheme, nativeImage } = require('electron');
 const { readManifest, parseArguments, applyOverrides } = require('./manifest');
 const { readIcon } = require('./icons');
+const { DocumentFiles, installDocumentBridge } = require('./document-files');
 const { LocalServer } = require('./server');
 const { StaticServer } = require('./static-server');
 const { loadPage } = require('./load-page');
@@ -332,9 +333,13 @@ class Launcher {
         await readIcon(this.manifest.icon, this.options.icon !== undefined ? '--icon' : 'icon del manifiesto');
         if (nativeImage.createFromPath(this.manifest.icon).isEmpty()) throw new Error('No se pudo decodificar el icono: ' + this.manifest.icon);
       }
-      if (this.manifest.static && this.options.appArgs.length) {
+      if (this.manifest.static && this.options.appArgs.length && !this.manifest.documents) {
         throw new Error('Esta aplicación es una web estática y no tiene un proceso Node o Python al que pasar argumentos.');
       }
+      if (this.manifest.static && this.manifest.documents && this.options.appArgs.length > 1) throw new Error('Indica un único fichero o carpeta para abrir al arrancar.');
+      if (this.manifest.documents) this.documents = new DocumentFiles({ extensions: this.manifest.documents.extensions,
+        startupFile: this.manifest.static ? this.options.appArgs[0] : undefined,
+        directory: app.getPath('documents'), dialog, window: () => this.window });
       if (this.closing) return this;
       // El hash evita usar nombres de manifiesto como rutas o identificadores de Chromium.
       this.profileDirectory = path.join(app.getPath('userData'), 'apps', appIdentity(this.manifest.name));
@@ -367,10 +372,17 @@ class Launcher {
       });
       this.url = await this.server.start();
       if (this.closing) return this;
+      const documentChannel = this.documents ? 'webbox:documents:' + randomUUID() : null;
+      const documentUrl = new URL(this.url);
       this.webView = new WebContentsView({ webPreferences: {
         ...securePreferences, devTools: !!this.options.debug, session: this.webSession, disableDialogs: false,
+        ...(documentChannel ? { preload: path.join(__dirname, 'ui/document-preload.js'), additionalArguments: [
+          '--webbox-documents-channel=' + documentChannel, '--webbox-documents-origin=' + documentUrl.origin,
+          '--webbox-documents-path=' + documentUrl.pathname] } : {}),
         safeDialogs: true, safeDialogsMessage: 'Evitar que esta aplicación muestre más diálogos'
       } });
+      if (this.documents) this.documentBridge = installDocumentBridge({ ipcMain, contents: this.webView.webContents,
+        files: this.documents, origin: documentUrl.origin, pathname: documentUrl.pathname, channel: documentChannel });
       this.webView.setBackgroundColor(this.backgroundColor());
       this.configureWebView();
       this.webView.setVisible(false);
@@ -392,7 +404,9 @@ class Launcher {
       await this.status('error', this.error.message, this.server?.tail() ?? '', this.pageError ? 'page' : this.server?.ready && this.server.failure ? 'server' : 'startup');
   }
 
-  removeWebView() {
+  async removeWebView() {
+    await this.documentBridge?.dispose();
+    this.documentBridge = null;
     this.removeDownloadPolicy?.();
     this.removeDownloadPolicy = null;
     this.removeNavigationPolicy?.();
@@ -411,7 +425,7 @@ class Launcher {
       await this.status('starting', 'Reiniciando el servidor local…');
       await this.server?.stop();
       if (this.closing) return;
-      this.removeWebView();
+      await this.removeWebView();
       this.error = null;
       this.pageError = null;
       this.rendererUnresponsive = false;
@@ -435,6 +449,7 @@ class Launcher {
 
   async dispose() {
     try {
+      await this.documentBridge?.dispose();
       await this.server?.stop();
     } catch (error) {
       this.error = error;

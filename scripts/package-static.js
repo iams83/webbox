@@ -12,14 +12,14 @@ function parseOptions(argv) {
   const options = { output: path.resolve(__dirname, '../dist'), name: undefined, input: undefined };
   for (let index = 0; index < argv.length; index++) {
     const arg = argv[index];
-    if (['--name', '--output', '--exe-icon', '--app-icon'].includes(arg)) {
+    if (['--name', '--output', '--exe-icon', '--app-icon', '--document-extensions'].includes(arg)) {
       const value = argv[++index];
       if (!value || value.startsWith('--')) throw new Error('Falta el valor de ' + arg + '.');
-      options[{ '--name': 'name', '--output': 'output', '--exe-icon': 'exeIcon', '--app-icon': 'appIcon' }[arg]] = value;
+      options[{ '--name': 'name', '--output': 'output', '--exe-icon': 'exeIcon', '--app-icon': 'appIcon', '--document-extensions': 'documentExtensions' }[arg]] = value;
     } else if (arg.startsWith('--') || options.input) throw new Error('Argumento no válido: ' + arg);
     else options.input = arg;
   }
-  if (!options.input) throw new Error('Uso: npm run package:static -- <archivo.html|carpeta-publica> --name MiApp [--output carpeta] [--exe-icon archivo.ico] [--app-icon archivo.ico|archivo.png]');
+  if (!options.input) throw new Error('Uso: npm run package:static -- <archivo.html|carpeta-publica> --name MiApp [--output carpeta] [--exe-icon archivo.ico] [--app-icon archivo.ico|archivo.png] [--document-extensions json]');
   options.input = path.resolve(options.input);
   options.output = path.resolve(options.output);
   for (const field of ['exeIcon', 'appIcon']) if (options[field] !== undefined) options[field] = path.resolve(options[field]);
@@ -69,6 +69,7 @@ async function prepareStatic(options, stage) {
   } else throw new Error('La entrada debe ser un HTML autónomo o una carpeta pública sin enlaces simbólicos.');
   if (!(await fs.stat(path.join(publicDir, 'index.html'))).isFile()) throw new Error('La carpeta pública debe tener index.html.');
   const manifest = { name: options.name, title: options.name, static: { root: 'public' } };
+  if (options.documentExtensions !== undefined) manifest.documents = { extensions: options.documentExtensions.split(',').map(value => value.trim().toLowerCase()) };
   if (appIcon) {
     manifest.icon = 'app-icon' + path.extname(appIconPath).toLowerCase();
     await fs.writeFile(path.join(stage, manifest.icon), appIcon);
@@ -103,7 +104,9 @@ async function main(argv = process.argv.slice(2)) {
         asar: true,
         files: ['src/**/*', 'package.json', { from: stage, to: 'embedded', filter: ['**/*'] }],
         win: { target: 'portable', signExecutable: false, ...(options.exeIcon ? { icon: options.exeIcon } : {}) },
-        portable: { unpackDirName: false },
+        // En electron-builder 26.15.3, false genera una ruta fija por build.
+        // true omite UNPACK_DIR_NAME y NSIS usa $PLUGINSDIR, único por arranque.
+        portable: { unpackDirName: true },
         artifactName: options.slug + '-${version}-win-${arch}.${ext}'
       }
     });

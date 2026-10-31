@@ -57,6 +57,14 @@ Entorno: Windows 10.0.26300 x64, Node host 24.19.0, Electron 44.7.0 (Node 24.21.
 - `npm.cmd run test:exe-args`: 2 recorridos aprobados con el EXE final. Comprueban el puerto elegido en Node/Python, el título CLI y el icono nativo de ventana mediante WM_GETICON con RGB `[30,180,80]`, distinto del icono del EXE. Los programas de prueba terminan tras escribir su resultado; no valida readiness HTTP ni otro equipo Windows.
 - La suite general de supervisión de procesos no se repitió; sus fallos conocidos constan en la validación anterior.
 
+### Documentos nativos opcionales: 31 de octubre de 2026
+
+- 53 pruebas específicas aprobadas en `document-files`, `manifest`, `arguments`, `security`, `static-server` y `package-static`. Incluyen apertura/activación, sobrescritura, Guardar como, carpeta del selector, cancelación, cambios externos y rechazo de IPC desde otros emisores/frames/URLs.
+- El empaquetador admite `--document-extensions`; por defecto las webs mantienen el aislamiento sin API de documentos. La integración no usa rutas HTTP para leer/escribir archivos y solo actúa sobre ficheros autorizados por el usuario.
+- El argumento de documento admite también una carpeta: selecciona el último nombre lexicográfico con una extensión permitida, sin recursión ni orden por fecha. Las 55 pruebas específicas pasan, incluidos carpeta vacía, nombres relativos, extensiones en mayúsculas y guardado del fichero elegido.
+- Corregida la extracción compartida del portable en electron-builder 26.15.3: se usa `$PLUGINSDIR` único por ejecución. Verificado un EXE estático con dos procesos y documentos simultáneos, puertos y extracciones distintos, y cierre de la primera instancia sin afectar a la segunda. Las 9 pruebas del empaquetador pasan. El esquema de la dependencia describe `false` de forma incompatible con su implementación; el código usa `true` explícito.
+- La suite completa de supervisión de procesos no se repitió; sus últimos fallos conocidos constan arriba.
+
 Cobertura Node: esquema/defaults/rutas, runtimes, TCP/HTTP/stdout, reserva/rango/fijo/carreras, PID ajeno/wildcard, reintentos/plazos/cancelación, descendientes/detached, logs/rotación y fallos de disco. Electron añade web real, recuperación, aislamiento/permisos, navegación/iframes, descargas/subida/diálogos, F12/foco/ANSI/acciones/DevTools, reinicio y cierre de hijo/nieto desde ventana y `before-quit`. Casos concretos en los tests y [smoke-checks.json](../test/smoke-checks.json).
 
 ### Límites de la evidencia

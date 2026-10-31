@@ -60,6 +60,15 @@ test('startUrl no puede escapar a un origen externo', async t => {
   }
 });
 
+test('el acceso nativo a documentos solo se habilita explícitamente y limita sus extensiones', async t => {
+  const base = { name: 'Documents', static: { root: '.' } };
+  assert.equal((await readManifest(await fixture(t, base))).documents, undefined);
+  assert.deepEqual((await readManifest(await fixture(t, { ...base, documents: { extensions: ['json'] } }))).documents, { extensions: ['json'] });
+  for (const documents of [{}, { extensions: [] }, { extensions: ['*'] }, { extensions: ['../json'] }, { extensions: ['json'], arbitraryRead: true }]) {
+    await assert.rejects(readManifest(await fixture(t, { ...base, documents })), /documents/);
+  }
+});
+
 test('el manifiesto admite prefijos adicionales HTTP/HTTPS y mantiene la navegación local por defecto', async t => {
   const defaults = await readManifest(await fixture(t, { name: 'Default', command: 'node' }));
   assert.deepEqual(defaults.navigation, { allowedPrefixes: [] });
