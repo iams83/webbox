@@ -3,7 +3,7 @@
 const assert = require('node:assert/strict');
 const path = require('node:path');
 const fs = require('node:fs/promises');
-const { app } = require('electron');
+const { app, nativeImage } = require('electron');
 const { setTimeout: delay } = require('node:timers/promises');
 
 const archive = path.resolve(process.argv[2] ?? path.resolve(__dirname, '../dist/win-unpacked/resources/app.asar'));
@@ -20,6 +20,10 @@ app.whenReady().then(async () => {
     instance = new Launcher({ show: false });
     await instance.start([path.join(archive, 'embedded/app.app.json')]);
     assert.equal(instance.state, 'running', instance.error?.message);
+    if (instance.manifest.icon) {
+      assert.equal(instance.manifest.icon.startsWith(path.join(archive, 'embedded') + path.sep), true);
+      assert.equal(nativeImage.createFromPath(instance.manifest.icon).isEmpty(), false, 'El icono privado debe poder cargarse desde el ASAR.');
+    }
     const contents = instance.webView.webContents;
     const deadline = Date.now() + 5000;
     while (Date.now() < deadline && !(await contents.executeJavaScript('document.querySelector("#result")?.textContent === "JavaScript estático activo."'))) await delay(50);

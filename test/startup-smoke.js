@@ -4,8 +4,11 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const { setTimeout: delay } = require('node:timers/promises');
-const { app, nativeTheme } = require('electron');
+const { app, nativeTheme, nativeImage } = require('electron');
 const { Launcher } = require('../src/launcher');
+const { reservePort } = require('../src/ports');
+const net = require('node:net');
+const { createIco } = require('./helpers/icon-fixture');
 
 const artifacts = path.resolve(__dirname, '../artifacts/startup');
 const instances = [];
@@ -34,7 +37,11 @@ async function verifyTheme(instance, theme, name) {
   await waitFor(async () => await instance.window.webContents.executeJavaScript('getComputedStyle(document.documentElement).backgroundColor') === background);
   assert.equal(instance.window.getBackgroundColor().toLowerCase(), theme === 'dark' ? '#202020' : '#f3f3f3');
   await delay(100);
-  const capture = await instance.window.webContents.capturePage(undefined, { stayAwake: true });
+  let capture;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try { capture = await instance.window.webContents.capturePage(undefined, { stayAwake: true }); break; }
+    catch (error) { if (error.message !== 'UnknownVizError' || attempt === 2) throw error; await delay(300); }
+  }
   assert.equal(capture.isEmpty(), false);
   await fs.writeFile(path.join(artifacts, name + '.png'), capture.toPNG());
 }
@@ -46,12 +53,22 @@ app.whenReady().then(async () => {
   let exitCode = 0;
   try {
     await fs.mkdir(artifacts, { recursive: true });
+    const exeIcon = path.join(artifacts, 'exe-icon.ico');
+    const appIcon = path.join(artifacts, 'app-icon.ico');
+    const runtimeIcon = path.join(artifacts, 'runtime-icon.ico');
+    await fs.writeFile(exeIcon, createIco(200, 50, 50));
+    await fs.writeFile(appIcon, createIco(40, 100, 200));
+    await fs.writeFile(runtimeIcon, createIco(30, 180, 80));
+    const manifestFile = path.join(artifacts, 'options.app.json');
+    await fs.writeFile(manifestFile, JSON.stringify({ name: 'Options stable identity', title: 'Título del manifiesto',
+      icon: appIcon, static: { root: path.resolve(__dirname, '../examples/static/public') }, port: { range: [1, 1] } }));
+    const portOverride = await reservePort();
     nativeTheme.themeSource = 'dark';
     const instance = launcher();
     const originalLaunch = instance.launchServer.bind(instance);
     const gate = new Promise(resolve => { release = resolve; });
     instance.launchServer = async () => { await gate; if (!instance.closing) await originalLaunch(); };
-    const pending = instance.start([path.resolve(__dirname, '../examples/static/app.app.json')]);
+    const pending = instance.start([manifestFile, '--port', String(portOverride), '--title', 'Título CLI · España', '--icon', runtimeIcon]);
     await waitFor(() => instance.window?.webContents.getURL().includes('/loading.html') && !instance.window.webContents.isLoading());
     assert.equal(instance.state, 'starting');
     assert.equal(instance.webView, null);
@@ -62,6 +79,11 @@ app.whenReady().then(async () => {
     release();
     await pending;
     assert.equal(instance.state, 'running', instance.error?.message);
+    assert.equal(instance.server.port, portOverride);
+    assert.equal(instance.window.getTitle(), 'Título CLI · España');
+    assert.equal(instance.manifest.name, 'Options stable identity');
+    assert.equal(instance.manifest.icon, runtimeIcon);
+    assert.equal(nativeImage.createFromPath(runtimeIcon).isEmpty(), false);
     assert.equal(instance.webView.getVisible(), true);
     await waitFor(async () => await instance.webView.webContents.executeJavaScript('document.getElementById("result").textContent') === 'JavaScript estático activo.');
     const port = instance.server.port;
@@ -74,10 +96,28 @@ app.whenReady().then(async () => {
     await instance.close();
     assert.equal(nativeTheme.listeners('updated').includes(instance.themeHandler), false);
     checks.push('Cargador sin diagnóstico visible, claro/oscuro, transición a web y recarga tras error');
+    checks.push('Puerto, título e icono CLI prevalecen sobre el manifiesto sin cambiar la identidad');
+
+    const occupied = net.createServer();
+    await new Promise(resolve => occupied.listen(0, '127.0.0.1', resolve));
+    try {
+      const busy = launcher();
+      await busy.start([manifestFile, '--port', String(occupied.address().port)]);
+      assert.equal(busy.state, 'error');
+      assert.match(busy.error.message, /puerto fijo.*ocupado/);
+      await busy.close();
+    } finally { await new Promise(resolve => occupied.close(resolve)); }
+    const invalidIcon = launcher();
+    await invalidIcon.start([manifestFile, '--icon', path.join(artifacts, 'missing.ico')]);
+    assert.equal(invalidIcon.state, 'error');
+    assert.match(invalidIcon.error.message, /No se puede leer --icon/);
+    await invalidIcon.close();
+    checks.push('Puerto ocupado e icono inexistente muestran diagnóstico sin sustituciones silenciosas');
 
     const failed = launcher();
-    await failed.start([]);
+    await failed.start(['--title', 'Diagnóstico CLI']);
     assert.equal(failed.state, 'error');
+    assert.equal(failed.window.getTitle(), 'Diagnóstico CLI');
     assert.match(await failed.window.webContents.executeJavaScript('document.getElementById("message").textContent'), /Falta el manifiesto/);
     assert.equal(await failed.window.webContents.executeJavaScript('document.getElementById("exit").hidden'), false);
     await verifyTheme(failed, 'light', 'error-light');

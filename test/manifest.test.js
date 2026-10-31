@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
-const { readManifest, parseArguments } = require('../src/manifest');
+const { readManifest, parseArguments, applyOverrides } = require('../src/manifest');
 
 async function fixture(t, data) {
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'webbox España '));
@@ -153,12 +153,42 @@ test('argumentos mantienen el nombre del fichero completo', () => {
 });
 
 test('separador CLI conserva literalmente opciones y argumentos de la aplicación', () => {
-  const args = ['--debug', '--trust', '--manifest', 'otra.json', '', 'España con espacios', 'a"b', '{PORT}', '&'];
+  const args = ['--debug', '--trust', '--manifest', 'otra.json', '--port', '8080', '--title', 'Título', '--icon', 'otra.ico', '', 'España con espacios', 'a"b', '{PORT}', '&'];
   const options = parseArguments(['app.json', '--', ...args]);
   assert.equal(options.debug, false);
   assert.equal(options.manifestPath, 'app.json');
   assert.deepEqual(options.appArgs, args);
   assert.throws(() => parseArguments(['app.json', '--', 'a\0b']), /NUL/);
+});
+
+test('las opciones CLI prevalecen sobre el manifiesto sin cambiar identidad, mecanismo de puerto ni archivo', async t => {
+  const filename = await fixture(t, { name: 'Identidad estable', command: 'node', title: 'Original',
+    icon: 'original.ico', port: { range: [4000, 4010], mode: 'arg', name: '--listen' } });
+  const original = await readManifest(filename);
+  const options = parseArguments(['--port', '8080', filename, '--title', 'Título CLI · España', '--icon', 'ventana.ico', '--', '--port', '9090']);
+  const effective = applyOverrides(original, options);
+  assert.equal(effective.name, original.name);
+  assert.equal(effective.title, 'Título CLI · España');
+  assert.equal(effective.icon, path.resolve('ventana.ico'));
+  assert.deepEqual(effective.port, { mode: 'arg', name: '--listen', fixed: 8080 });
+  assert.deepEqual(original.port.range, [4000, 4010]);
+  assert.equal(original.title, 'Original');
+  assert.equal((JSON.parse(await fs.readFile(filename, 'utf8'))).title, 'Original');
+  assert.deepEqual(options.appArgs, ['--port', '9090']);
+});
+
+test('CLI valida puerto, título e icono y rechaza opciones incompletas o repetidas', () => {
+  for (const port of ['0', '65536', '-1', '1.5', 'abc', '1e3', ' 80']) {
+    assert.throws(() => parseArguments(['app.json', '--port', port]), /--port/);
+  }
+  for (const args of [['--port'], ['--title'], ['--icon'], ['--title', ' '], ['--icon', 'a\0b.ico'],
+    ['--port', '8080', '--port', '8081'], ['--title', 'A', '--title', 'B']]) {
+    assert.throws(() => parseArguments(['app.json', ...args]));
+  }
+  const options = parseArguments(['--port', '65535', '--title', 'Mi ventana'], { embeddedManifestPath: 'embedded.json' });
+  assert.equal(options.port, 65535);
+  assert.equal(options.title, 'Mi ventana');
+  assert.deepEqual(options.appArgs, []);
 });
 
 test('un EXE con manifiesto integrado recibe argumentos sin confundirlos con otro manifiesto', () => {

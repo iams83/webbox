@@ -4,8 +4,9 @@ const path = require('node:path');
 const fs = require('node:fs');
 const { randomUUID } = require('node:crypto');
 const { once } = require('node:events');
-const { app, BrowserWindow, WebContentsView, session, shell, ipcMain, dialog, clipboard, nativeTheme } = require('electron');
-const { readManifest, parseArguments } = require('./manifest');
+const { app, BrowserWindow, WebContentsView, session, shell, ipcMain, dialog, clipboard, nativeTheme, nativeImage } = require('electron');
+const { readManifest, parseArguments, applyOverrides } = require('./manifest');
+const { readIcon } = require('./icons');
 const { LocalServer } = require('./server');
 const { StaticServer } = require('./static-server');
 const { loadPage } = require('./load-page');
@@ -41,7 +42,7 @@ class Launcher {
   createWindow(manifest) {
     this.window = new BrowserWindow({
       ...(manifest?.window ?? { width: 820, height: 560 }),
-      title: manifest?.title ?? 'WebBox', icon: manifest?.icon,
+      title: manifest?.title ?? this.options?.title ?? 'WebBox', icon: manifest?.icon,
       backgroundColor: this.backgroundColor(), show: false, autoHideMenuBar: true,
       webPreferences: {
         ...securePreferences, partition: 'webbox-status-' + randomUUID(),
@@ -174,7 +175,7 @@ class Launcher {
     this.logPacket = (this.logPacket ?? 0) + 1;
     this.logSentKey = this.logs.revision + ':' + this.state;
     this.logView.webContents.send('webbox:log-data', {
-      ...this.logs.visibleSnapshot(), title: this.manifest?.title ?? 'WebBox', state: this.state,
+      ...this.logs.visibleSnapshot(), title: this.manifest?.title ?? this.options?.title ?? 'WebBox', state: this.state,
       packet: this.logPacket, message: this.logNotice || (this.state === 'error' ? this.error?.message : '') || ''
     });
     this.logNotice = '';
@@ -191,7 +192,7 @@ class Launcher {
     try {
       await this.window.loadFile(path.join(__dirname, 'ui', state === 'error' ? 'status.html' : 'loading.html'), {
         query: {
-          state, kind, title: this.manifest?.title ?? 'WebBox', message, details,
+          state, kind, title: this.manifest?.title ?? this.options?.title ?? 'WebBox', message, details,
           reload: String(kind === 'page' && !!this.server?.ready && !this.server?.failure),
           retry: String(state === 'error' && kind !== 'page' && !!this.manifest && !this.restarting)
         }
@@ -326,7 +327,11 @@ class Launcher {
       this.options = parseArguments(argv, {
         embeddedManifestPath: embeddedManifestPath && fs.existsSync(embeddedManifestPath) ? embeddedManifestPath : undefined
       });
-      this.manifest = await readManifest(this.options.manifestPath);
+      this.manifest = applyOverrides(await readManifest(this.options.manifestPath), this.options);
+      if (this.manifest.icon) {
+        await readIcon(this.manifest.icon, this.options.icon !== undefined ? '--icon' : 'icon del manifiesto');
+        if (nativeImage.createFromPath(this.manifest.icon).isEmpty()) throw new Error('No se pudo decodificar el icono: ' + this.manifest.icon);
+      }
       if (this.manifest.static && this.options.appArgs.length) {
         throw new Error('Esta aplicación es una web estática y no tiene un proceso Node o Python al que pasar argumentos.');
       }
@@ -380,7 +385,7 @@ class Launcher {
   async startupFailure(error) {
       if (this.closing) return this;
       this.error = error;
-      if (!this.window) this.createWindow();
+      if (!this.window) this.createWindow(this.manifest && { ...this.manifest, icon: undefined });
       if (!this.pageError) await this.server?.stop().catch(stopError => {
         this.error = new Error(error.message + '\n' + stopError.message);
       });

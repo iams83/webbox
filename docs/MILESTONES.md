@@ -48,6 +48,15 @@ Entorno: Windows 10.0.26300 x64, Node host 24.19.0, Electron 44.7.0 (Node 24.21.
 - Portable de la demo reconstruido; los mismos 6 recorridos pasan con `npm.cmd run test:navigation -- dist/win-unpacked/resources/app.asar`. Informe final en `artifacts/navigation/results.json`. Las llamadas al navegador se recogen con un callback; no se abren pestañas reales.
 - `npm.cmd run test:startup`: 4 recorridos aprobados tras el cambio. No se repitió la suite completa de supervisión de procesos; sus últimos resultados y fallos constan arriba.
 
+### Puerto, título e iconos configurables: 31 de octubre de 2026
+
+- 46 pruebas aprobadas en `security`, `manifest`, `arguments`, `static-server` y `package-static`. Verifican prioridad CLI, conservación de identidad/archivo, transmisión del puerto, iconos compartidos o separados, recursos privados y rechazo de iconos ausentes/truncados.
+- `npm.cmd run test:startup`: 6 recorridos aprobados. Incluye puerto fijo sobre un rango del manifiesto, título e icono CLI, errores de puerto ocupado/icono ausente y título CLI en diagnósticos sin manifiesto.
+- Portable de la demo construido con `--exe-icon artifacts/startup/exe-icon.ico --app-icon artifacts/startup/app-icon.ico`. Se verificaron recursos ICO distintos: EXE portable y ejecutable interno con RGB `[200,50,50]`; icono privado incluido en ASAR con RGB `[40,100,200]`. La extracción nativa de los iconos de ambos EXE está registrada en `artifacts/startup/icon-resources.json`.
+- `npm.cmd run test:packaged`: aprobado con el ASAR final, incluido el icono privado decodificable. Los 6 recorridos de navegación también pasan con el código del paquete.
+- `npm.cmd run test:exe-args`: 2 recorridos aprobados con el EXE final. Comprueban el puerto elegido en Node/Python, el título CLI y el icono nativo de ventana mediante WM_GETICON con RGB `[30,180,80]`, distinto del icono del EXE. Los programas de prueba terminan tras escribir su resultado; no valida readiness HTTP ni otro equipo Windows.
+- La suite general de supervisión de procesos no se repitió; sus fallos conocidos constan en la validación anterior.
+
 Cobertura Node: esquema/defaults/rutas, runtimes, TCP/HTTP/stdout, reserva/rango/fijo/carreras, PID ajeno/wildcard, reintentos/plazos/cancelación, descendientes/detached, logs/rotación y fallos de disco. Electron añade web real, recuperación, aislamiento/permisos, navegación/iframes, descargas/subida/diálogos, F12/foco/ANSI/acciones/DevTools, reinicio y cierre de hijo/nieto desde ventana y `before-quit`. Casos concretos en los tests y [smoke-checks.json](../test/smoke-checks.json).
 
 ### Límites de la evidencia

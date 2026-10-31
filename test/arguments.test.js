@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
-const { readManifest, parseArguments } = require('../src/manifest');
+const { readManifest, parseArguments, applyOverrides } = require('../src/manifest');
 const { LocalServer } = require('../src/server');
 
 async function fixture(t, data, appArgs) {
@@ -13,10 +13,10 @@ async function fixture(t, data, appArgs) {
   t.after(() => fs.rm(directory, { recursive: true, force: true }));
   const filename = path.join(directory, 'app.json');
   await fs.writeFile(filename, JSON.stringify({ name: 'Arguments', command: process.execPath, ...data }));
-  const options = parseArguments([filename, '--', ...appArgs]);
-  const server = new LocalServer(await readManifest(options.manifestPath), undefined, options.appArgs);
+  const options = parseArguments([filename, '--port', '43210', '--', ...appArgs]);
+  const server = new LocalServer(applyOverrides(await readManifest(options.manifestPath), options), undefined, options.appArgs);
   t.after(() => server.logs.close());
-  server.port = 43210;
+  server.port = server.manifest.port.fixed;
   return server;
 }
 

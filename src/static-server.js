@@ -7,6 +7,7 @@ const http = require('node:http');
 const { EventEmitter } = require('node:events');
 const { pipeline } = require('node:stream/promises');
 const { LogBuffer } = require('./log-buffer');
+const { portConflict } = require('./ports');
 
 const contentTypes = {
   '.html': 'text/html; charset=utf-8', '.htm': 'text/html; charset=utf-8',
@@ -92,6 +93,7 @@ class StaticServer extends EventEmitter {
           break;
         } catch (error) {
           if (signal.aborted) throw signal.reason;
+          if (error.code === 'EADDRINUSE' && fixed !== undefined) throw portConflict(`El puerto fijo ${fixed} está ocupado.`);
           if (error.code !== 'EADDRINUSE' || port === last) throw error;
         }
       }

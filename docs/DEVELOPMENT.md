@@ -8,6 +8,7 @@ Lee primero el [contrato actual](../README.md), luego esta guía. [MILESTONES.md
 | --- | --- |
 | [main.js](../src/main.js) | Inicio Windows, CLI y cierre coordinado con `before-quit`. |
 | [manifest.js](../src/manifest.js), [esquema](../src/manifest.schema.json) | CLI/JSON, estructura Ajv, contratos entre campos, defaults y rutas. |
+| [icons.js](../src/icons.js) | Lectura y comprobación de estructura ICO/PNG para iconos de ventana; la opción de icono del EXE exige ICO. |
 | [launcher.js](../src/launcher.js) | Ventana, vistas/sesiones, estados, navegación, recuperación, atajos e IPC. |
 | [server.js](../src/server.js) | Spawn, readiness/reintentos, supervisión detached y cierre. |
 | [static-server.js](../src/static-server.js) | HTTP estático dentro del proceso, MIME, rutas públicas y cierre. Lee también recursos de ASAR. |
@@ -23,7 +24,7 @@ Lee primero el [contrato actual](../README.md), luego esta guía. [MILESTONES.md
 
 ## Ciclo de vida
 
-1. `main` espera a Electron; `Launcher.start` valida CLI/manifiesto, crea perfil, LogWriter, ventana de estado y vista de log.
+1. `main` espera a Electron; `Launcher.start` valida CLI/manifiesto y aplica `--port`, `--title` y `--icon` sin mutar el manifiesto leído. El puerto CLI elimina el rango y fija el puerto manteniendo su modo de transmisión. Valida el icono efectivo y crea perfil, LogWriter, ventana de estado y vista de log; la identidad del perfil sigue dependiendo de `name`.
 2. Con `command`, `LocalServer.start` reserva/libera puerto, resuelve runtime, añade los argumentos CLI literalmente a los del manifiesto/puerto, lanza y verifica readiness/propietario. Un AbortController y plazo abarcan todos los intentos; solo los conflictos permiten reintentar. Con `static.root`, `StaticServer` abre directamente un listener HTTP loopback sin proceso externo. Un paquete usa `embedded/app.app.json` dentro de `app.asar`; `--manifest` permite elegir otro manifiesto y `--` delimita los argumentos de la aplicación.
 3. Tras readiness crea webView con sesión persistente, instala políticas y carga `startUrl` con plazo independiente. Estado `running` solo tras cargar.
 4. `state` (`idle/starting/running/error/closed`) y `activeView` (`content/log`) son independientes: F12 conserva web/servidor y el log puede seguir visible durante carga/error.
@@ -31,6 +32,8 @@ Lee primero el [contrato actual](../README.md), luego esta guía. [MILESTONES.md
 6. `close` cancela carga/descargas e inicia una única promesa; `LocalServer.stop` cancela/espera arranque y termina procesos. `dispose` espera logs, retira handlers/políticas y destruye vistas/ventana. `before-quit` espera ese cierre.
 
 La ventana nace oculta con un fondo calculado mediante `nativeTheme`; se muestra en `ready-to-show`. Durante arranque/recarga carga `ui/loading.html` (solo un indicador accesible); `ui/status.html` queda reservado a errores. Ambas comparten `status.css` con `prefers-color-scheme`, y el fondo nativo se sincroniza con los cambios de tema. La web conserva sus estilos propios.
+
+El empaquetador admite `--exe-icon` para los recursos nativos Windows y `--app-icon` para la ventana. Si falta el segundo, reutiliza el primero. Copia el icono de ventana a `embedded/app-icon.ico` o `.png` y escribe una ruta relativa en el manifiesto integrado; no lo expone por HTTP ni depende de la ruta original. `signExecutable: false` omite la firma, conservando la edición de recursos/iconos.
 
 ## Invariantes
 
@@ -57,9 +60,9 @@ npm.cmd run test:smoke -- --require-captures
 | [main-smoke.js](../test/main-smoke.js) | Entrada real y cierre de servidor/hijo/nieto detached por `before-quit`. |
 | [run-smoke.js](../scripts/run-smoke.js) | Ejecuta ambas secuencias; supervisión 210 s por secuencia (Launcher: 180 s interior), informes actuales/completos con ID/fecha/checks. |
 | [arguments.test.js](../test/arguments.test.js) | Puerto/orden/reintentos y recepción literal de argumentos en procesos Node y Python reales; junto con `manifest.test.js`, cubre la CLI y manifiestos integrados. |
-| [startup-smoke.js](../test/startup-smoke.js) | `npm.cmd run test:startup`: cargador, transición a web estática, diagnóstico, cambio de tema en vivo y cierre durante arranque; capturas claras/oscuras en `artifacts/startup/`. |
+| [startup-smoke.js](../test/startup-smoke.js) | `npm.cmd run test:startup`: cargador, transición a web estática, opciones CLI/identidad, puerto ocupado, icono ausente, diagnóstico, cambio de tema en vivo y cierre durante arranque; capturas claras/oscuras en `artifacts/startup/`. |
 | [navigation-smoke.js](../test/navigation-smoke.js) | `npm.cmd run test:navigation`: enlaces reales, ambos hosts locales, prefijos/rutas, `_blank`, redirecciones e iframes; recoge las aperturas externas sin abrir el navegador real. Admite la ruta del ASAR como primer argumento tras `--` para probar el código empaquetado. Informe en `artifacts/navigation/`. |
-| [test-executable-arguments.js](../scripts/test-executable-arguments.js) | `npm.cmd run test:exe-args`: ejecuta el portable con `--manifest`, comprueba argumentos recibidos por Node/Python y cierra el diagnóstico de los programas de prueba que terminan inmediatamente. |
+| [test-executable-arguments.js](../scripts/test-executable-arguments.js) | `npm.cmd run test:exe-args`: ejecuta el portable con `--manifest`, comprueba puerto y argumentos recibidos por Node/Python, título CLI e icono nativo mediante WM_GETICON; cierra el diagnóstico de los programas de prueba que terminan inmediatamente. |
 | [packaged-smoke.js](../test/packaged-smoke.js) | `npm.cmd run test:packaged`: ejecuta la demo estática del ASAR final, comprueba HTML/CSS/módulos/Web Crypto/aislamiento y trata de capturar la interfaz. |
 | [test-portable.js](../scripts/test-portable.js) | `npm.cmd run test:portable`: copia el EXE a una carpeta temporal, elimina Node del PATH heredado, verifica HTTP/título de ventana y cierra con WM_CLOSE. |
 

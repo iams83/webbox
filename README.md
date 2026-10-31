@@ -40,9 +40,19 @@ npm.cmd start -- examples/node/app.app.json -- --modo local
 mi-app.exe -- --archivo "C:\Mis datos\datos.json"
 # Elegir otro manifiesto, también desde un EXE con uno integrado:
 mi-app.exe --manifest C:\mi-app\app.app.json -- --modo local
+# Ajustar la ventana y el puerto sin editar el manifiesto:
+mi-app.exe --port 8080 --title "Panel familiar" --icon "C:\Iconos\ventana.ico" -- --archivo datos.json
 ```
 
-También admite argumentos directamente después del manifiesto (o directamente al EXE con manifiesto integrado). Antes de `--`, `--debug`, `--trust` y `--manifest` pertenecen a WebBox hasta que empieza la lista de argumentos de la aplicación. Después de `--`, todos los valores se pasan literalmente, incluidos opciones con esos nombres, argumentos vacíos y `{PORT}`. No se interpreta una línea de shell. Se conservan las restricciones de `.cmd/.bat` y no se permite sobrescribir el argumento de puerto gestionado por WebBox. Las webs estáticas no tienen un proceso Node/Python al que pasar argumentos: si se proporcionan, muestran un diagnóstico.
+Las opciones de ejecución tienen prioridad sobre el manifiesto y los valores predeterminados; no modifican el archivo ni el nombre que identifica el perfil:
+
+| Parámetro de WebBox | Efecto |
+| --- | --- |
+| `--port PUERTO` | Entero 1–65535. Sustituye `port.fixed` o `port.range` para esa ejecución; si está ocupado, muestra un error. Funciona en modo estático y Node/Python, conservando el mecanismo de transmisión de puerto configurado y las reglas de navegación con el puerto real. |
+| `--title TÍTULO` | Sustituye el título de la ventana y de las pantallas de WebBox; no cambia `name`, el perfil ni el título HTML propio de la web. |
+| `--icon ARCHIVO` | Sustituye el icono de la ventana, sin cambiar el icono grabado en el EXE. Admite `.ico` y `.png`; la ruta es relativa al directorio desde el que se ejecuta el comando. |
+
+También admite argumentos directamente después del manifiesto (o directamente al EXE con manifiesto integrado). Antes de `--`, `--debug`, `--trust`, `--manifest`, `--port`, `--title` y `--icon` pertenecen a WebBox hasta que empieza la lista de argumentos de la aplicación. Después de `--`, todos los valores se pasan literalmente, incluidos opciones con esos nombres, argumentos vacíos y `{PORT}`. No se interpreta una línea de shell. Se conservan las restricciones de `.cmd/.bat` y no se permite sobrescribir el argumento de puerto gestionado por WebBox. Las webs estáticas admiten las opciones de WebBox, pero no tienen un proceso Node/Python al que pasar argumentos: si se proporcionan argumentos de aplicación, muestran un diagnóstico.
 
 Para desarrollar: [guía del código y pruebas](docs/DEVELOPMENT.md) → [estado y validación](docs/MILESTONES.md). Los [requisitos pendientes](docs/SPEC.md) y [ejemplos](examples/README.md) completan el contexto.
 
@@ -71,13 +81,19 @@ npm.cmd run package:static -- C:\mi-web\mi-web.html --name MiWeb
 npm.cmd run package:static -- C:\mi-web\public --name MiWeb
 # Destino opcional (fuera de la carpeta pública):
 npm.cmd run package:static -- C:\mi-web\public --name MiWeb --output C:\entregas
+# Un mismo icono para EXE y ventana:
+npm.cmd run package:static -- C:\mi-web\public --name MiWeb --exe-icon C:\Iconos\marca.ico
+# Iconos diferentes para el EXE y la ventana:
+npm.cmd run package:static -- C:\mi-web\public --name MiWeb --exe-icon C:\Iconos\marca.ico --app-icon C:\Iconos\ventana.ico
 ```
 
 El resultado es `dist/miweb-<versión de WebBox>-win-x64.exe`. El destino predeterminado es siempre `dist/` de WebBox; `--output` permite elegir otra carpeta. Copia **solo ese `.exe`** a otro equipo Windows x64 compatible con Electron. No necesita Node.js, Python, un servidor instalado ni Internet para arrancar; las dependencias externas de cada web siguen siendo responsabilidad de esa web. La construcción sí puede descargar herramientas de empaquetado la primera vez. El comando empaqueta el HTML existente: genera antes la salida pública con las herramientas de tu proyecto cuando cambien sus fuentes.
 
 El ejecutable incluye código y recursos en un ASAR dentro del portable; al iniciarse se extrae a una carpeta temporal de Windows. No requiere instalación ni administrador, pero sí permiso para escribir en temporales y en el perfil del usuario, donde conserva logs y almacenamiento del navegador. Las preferencias/datos guardados en ese perfil no viajan dentro del ejecutable. Cada web conserva sus propios controles para abrir y guardar documentos; solo se empaquetan los archivos públicos de la entrada indicada.
 
-La variante de carpeta copia sus recursos de forma recursiva; rechaza carpetas ocultas, `node_modules` y enlaces simbólicos para detectar entradas que no sean una salida pública. Un único HTML debe ser autónomo; si usa archivos relativos, utiliza la variante de carpeta. El portable no lleva firma Authenticode y usa el icono de Electron. Para reconstruirlo tras actualizar la web, repite el mismo comando.
+`--exe-icon` admite `.ico` y lo graba en el ejecutable durante la construcción; cambiarlo requiere reconstruir el paquete. Si no se indica `--app-icon`, ese mismo icono se usa para la ventana. `--app-icon` admite `.ico` o `.png`, puede indicarse por separado y se incluye dentro del ASAR como recurso privado, fuera de la carpeta pública. Los archivos originales no son necesarios en el equipo de destino. Al ejecutar, `--icon` prevalece sobre ese recurso o sobre `icon` del manifiesto. Las rutas de construcción son relativas al directorio de invocación; las de `icon` en un manifiesto son relativas a ese JSON. Los archivos ausentes o con estructura inválida muestran un error.
+
+La variante de carpeta copia sus recursos de forma recursiva; rechaza carpetas ocultas, `node_modules` y enlaces simbólicos para detectar entradas que no sean una salida pública. Un único HTML debe ser autónomo; si usa archivos relativos, utiliza la variante de carpeta. El portable no lleva firma Authenticode. Sin iconos personalizados conserva el de Electron. Para reconstruirlo tras actualizar la web o WebBox, repite el mismo comando.
 
 ## Contrato del manifiesto
 
@@ -90,7 +106,7 @@ JSON UTF-8 con BOM opcional. [manifest.schema.json](src/manifest.schema.json) va
 | `static.root` | Alternativa a `command`: carpeta pública servida por el HTTP integrado, relativa al manifiesto. Ver empaquetado estático arriba. |
 | `args` / `env` | `[]` / `{}`; textos, con sustitución de `{PORT}`. `env` amplía el entorno heredado. |
 | `cwd` | Carpeta del manifiesto. |
-| `title` / `icon` | `name` / icono de Electron; `icon` puede indicar un archivo. El título nativo no cambia con el de la web. |
+| `title` / `icon` | `name` / icono de Electron; `icon` admite `.ico` o `.png`. `--title` y `--icon` prevalecen durante esa ejecución. El título nativo no cambia con el de la web. |
 | `port.mode` / `port.name` | `env` / `PORT`. `env` impone esa variable; `arg` añade `name PUERTO` (default `--port`, sin duplicados); `placeholder` exige `{PORT}` en args/env y no admite `name`. |
 | `port.fixed` / `port.range` | Opcionales y excluyentes: puerto 1–65535 o `[inicio, fin]` inclusivo. Rango elige el primero libre; sin ambos, puerto automático. |
 | `ready.type` | `port`: TCP abierto. También `http`: GET 2xx; `stdout`: patrón y TCP abierto. Todos exigen listener IPv4 propio o descendiente comprobado. |

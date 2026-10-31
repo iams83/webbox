@@ -7,6 +7,7 @@ const path = require('node:path');
 const os = require('node:os');
 const { parseOptions, prepareStatic } = require('../scripts/package-static');
 const { readManifest } = require('../src/manifest');
+const { createIco } = require('./helpers/icon-fixture');
 
 async function fixture(t) {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), 'webbox package '));
@@ -64,4 +65,49 @@ test('el destino predeterminado es dist de WebBox para cualquier nombre', () => 
     assert.equal(parseOptions(['web.html', '--name', name]).output, path.resolve(__dirname, '../dist'));
     assert.equal(parseOptions(['web.html', '--name', name, '--output', 'entregas']).output, path.resolve('entregas'));
   }
+});
+
+test('el icono del EXE se incluye como icono de ventana sin exponerlo en la carpeta pública', async t => {
+  const { root, stage } = await fixture(t);
+  const html = path.join(root, 'app.html');
+  const icon = path.join(root, 'marca.ico');
+  const bytes = createIco();
+  await fs.writeFile(html, '<h1>Web</h1>');
+  await fs.writeFile(icon, bytes);
+  const options = parseOptions([html, '--exe-icon', icon]);
+  await prepareStatic(options, stage);
+  const manifest = await readManifest(path.join(stage, 'app.app.json'));
+  assert.equal(manifest.icon, path.join(stage, 'app-icon.ico'));
+  assert.deepEqual(await fs.readFile(manifest.icon), bytes);
+  assert.deepEqual(await fs.readdir(path.join(stage, 'public')), ['index.html']);
+});
+
+test('el icono de ventana puede diferir del EXE o configurarse sin cambiar el EXE', async t => {
+  for (const withExe of [false, true]) {
+    const { root, stage } = await fixture(t);
+    const html = path.join(root, 'app.html');
+    const exeIcon = path.join(root, 'exe.ico');
+    const appIcon = path.join(root, 'window.ico');
+    await fs.writeFile(html, '<h1>Web</h1>');
+    await fs.writeFile(exeIcon, createIco(200, 30, 30));
+    await fs.writeFile(appIcon, createIco(30, 200, 30));
+    const options = parseOptions([html, '--app-icon', appIcon, ...(withExe ? ['--exe-icon', exeIcon] : [])]);
+    await prepareStatic(options, stage);
+    const manifest = await readManifest(path.join(stage, 'app.app.json'));
+    assert.deepEqual(await fs.readFile(manifest.icon), await fs.readFile(appIcon));
+    assert.notDeepEqual(await fs.readFile(manifest.icon), await fs.readFile(exeIcon));
+  }
+});
+
+test('rechaza iconos ausentes, truncados o con formato incorrecto antes de empaquetar', async t => {
+  const { root, stage } = await fixture(t);
+  const html = path.join(root, 'app.html');
+  const icon = path.join(root, 'bad.ico');
+  await fs.writeFile(html, 'web');
+  await assert.rejects(prepareStatic(parseOptions([html, '--exe-icon', icon]), stage), /No se puede leer --exe-icon/);
+  await fs.writeFile(icon, 'no es un icono');
+  await assert.rejects(prepareStatic(parseOptions([html, '--exe-icon', icon]), stage), /icono válido/);
+  await assert.rejects(prepareStatic(parseOptions([html, '--exe-icon', 'imagen.png']), stage), /debe ser un archivo .ico/);
+  await fs.writeFile(icon, createIco().subarray(0, 50));
+  await assert.rejects(prepareStatic(parseOptions([html, '--app-icon', icon]), stage), /icono válido/);
 });

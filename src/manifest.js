@@ -53,7 +53,7 @@ function localPath(value, field) {
 
 // El esquema valida la estructura; debajo se comprueban contratos entre campos.
 async function readManifest(filename) {
-  if (!filename) throw new Error('Falta el manifiesto. Uso: launcher.exe ruta\\al\\manifiesto.json [--debug] [--trust] [-- argumentos de la aplicación]');
+  if (!filename) throw new Error('Falta el manifiesto. Uso: launcher.exe ruta\\al\\manifiesto.json [--port PUERTO] [--title TÍTULO] [--icon ICONO] [--debug] [--trust] [-- argumentos de la aplicación]');
   const manifestPath = path.resolve(filename);
   let raw;
   try {
@@ -191,6 +191,22 @@ function parseArguments(argv, { embeddedManifestPath } = {}) {
     if (arg === '--') { options.appArgs = argv.slice(index + 1); break; }
     if (arg === '--debug') options.debug = true;
     else if (arg === '--trust') options.trust = true;
+    else if (['--port', '--title', '--icon'].includes(arg)) {
+      const field = arg.slice(2);
+      if (options[field] !== undefined) throw new Error('No repitas ' + arg + '.');
+      const value = argv[++index];
+      if (!value || value.startsWith('--')) throw new Error('Falta el valor de ' + arg + '.');
+      noNul(value, arg);
+      if (field === 'port') {
+        if (!/^\d+$/.test(value) || Number(value) < 1 || Number(value) > 65535) {
+          throw new Error('--port debe ser un entero entre 1 y 65535.');
+        }
+        options.port = Number(value);
+      } else {
+        if (field === 'title' && !value.trim()) throw new Error('--title no puede estar vacío.');
+        options[field] = value;
+      }
+    }
     else if (arg === '--manifest') {
       if (explicitManifest || options.manifestPath && !embeddedManifestPath) throw new Error('Indica un único fichero manifiesto.');
       const value = argv[++index];
@@ -206,4 +222,16 @@ function parseArguments(argv, { embeddedManifestPath } = {}) {
   return options;
 }
 
-module.exports = { readManifest, parseArguments };
+function applyOverrides(manifest, options) {
+  const result = { ...manifest, port: { ...manifest.port } };
+  if (options.port !== undefined) {
+    result.port.fixed = options.port;
+    delete result.port.range;
+  }
+  if (options.title !== undefined) result.title = options.title;
+  // Las rutas del manifiesto son relativas al JSON; las de CLI, al cwd de invocación.
+  if (options.icon !== undefined) result.icon = path.resolve(options.icon);
+  return result;
+}
+
+module.exports = { readManifest, parseArguments, applyOverrides };

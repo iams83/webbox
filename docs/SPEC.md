@@ -17,8 +17,8 @@ Conservar aislamiento por nombre, recuperación de renderer/servidor y rutas con
 
 ## Hito 6: distribución
 
-- Ampliar el empaquetado electron-builder (ya disponible para portable estático) con instalador NSIS y distribución general del lanzador; completar metadatos e icono propios.
-- Verificar la CLI ya implementada con el instalador y la distribución general: `launcher.exe ruta\al\manifiesto.app.json [--debug] [--trust] [-- argumentos]`, o `--manifest ruta` para elegir otro manifiesto desde un EXE con uno integrado. Uso/JSON inválidos deben mostrar el diagnóstico con el tema del sistema, sin consola.
+- Ampliar el empaquetado electron-builder (ya disponible para portable estático con iconos personalizados de EXE/ventana) con instalador NSIS y distribución general del lanzador; completar metadatos e icono predeterminado propios.
+- Verificar la CLI ya implementada con el instalador y la distribución general: `launcher.exe ruta\al\manifiesto.app.json [--port PUERTO] [--title TÍTULO] [--icon ICONO] [--debug] [--trust] [-- argumentos]`, o `--manifest ruta` para elegir otro manifiesto desde un EXE con uno integrado. Uso/JSON inválidos deben mostrar el diagnóstico con el tema del sistema, sin consola.
 - NSIS: implementar y verificar asociación de la extensión compuesta `.app.json`. Portable: ruta por CLI o arrastrar manifiesto sobre el ejecutable.
 - Documentar firma Authenticode, credenciales fuera del repositorio y relación con SmartScreen, sin prometer eliminar todos los avisos.
 - Probar instalación, desinstalación, portable y asociación según la configuración entregada; ejecutar ejemplos Node, Python, HTTP lento/fallo, npm/descendientes y detached con la distribución.
